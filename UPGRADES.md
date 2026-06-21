@@ -1,4 +1,4 @@
-# DawaiSathi — Upgrade Roadmap & Market Review
+# DawaiSathi — Upgrade Roadmap and Market Review
 
 > *What real users of medicine tracking apps ask for most — mapped to DawaiSathi's next steps.*
 
@@ -13,7 +13,7 @@ Each upgrade is tagged with:
 
 ---
 
-## 🟥 Priority 1 — Users Will Demand These Immediately
+## Priority 1 — Users Will Demand These Immediately
 
 ### 1. Push Notifications (Dose Reminders)
 **Impact: Critical | Effort: Medium**
@@ -44,7 +44,7 @@ Right now the cabinet shows what to take but there is no way to check it off. Us
 ### 3. Refill Tracker (Running Low Alerts)
 **Impact: High | Effort: Medium**
 
-The second-most common complaint in medicine app reviews is running out of medicine without warning. Users on Amazon Pharmacy app reviews, 1mg reviews, and Netmeds reviews all mention this.
+The second-most common complaint in medicine app reviews is running out of medicine without warning. Users on Amazon Pharmacy, 1mg, and Netmeds reviews all mention this.
 
 - When adding a medicine, let the user enter the current quantity (e.g., 30 tablets)
 - The app counts down by the number of doses per day
@@ -56,15 +56,15 @@ The second-most common complaint in medicine app reviews is running out of medic
 ### 4. Medicine Expiry Tracking
 **Impact: High | Effort: Low**
 
-Users frequently ask this in reviews of Medisafe and similar apps. Expired medicines in the home are a real safety hazard.
+Users frequently ask for this in reviews of Medisafe and similar apps. Expired medicines in the home are a real safety hazard.
 
 - Add an optional expiry date field when confirming a medicine after scan
-- The cabinet can show a small warning badge near medicines expiring within 30 days
+- The cabinet shows a warning badge near medicines expiring within 30 days
 - Push alert on expiry date: *"Amoxicillin in Riya's cabinet expired today — dispose safely"*
 
 ---
 
-## 🟧 Priority 2 — Power Users Will Love These
+## Priority 2 — Power Users Will Value These
 
 ### 5. Prescription History Archive
 **Impact: High | Effort: Medium**
@@ -85,28 +85,28 @@ A medicine name alone is not enough. Users need to know:
 - Half a tablet or full?
 - For how many days?
 
-- Add these optional fields in the ScanApproval confirmation screen
+- Add these optional fields in the confirmation screen after scan
 - The AI can attempt to extract this from the prescription text too (Gemini can do this)
 - Show these instructions as a small note in the cabinet card
 
 ---
 
-### 7. Doctor & Pharmacy Notes
+### 7. Doctor and Pharmacy Notes
 **Impact: Medium | Effort: Low**
 
-A simple free-text notes field on each medicine for the user to write doctor's instructions. Very low effort, very high perceived value — users feel the app is their health journal.
+A simple free-text notes field on each medicine for the user to write doctor's instructions. Very low effort, high perceived value — users feel the app is their personal health journal.
 
 ---
 
 ### 8. Caregiver / Remote Family Mode
 **Impact: High | Effort: High**
 
-The current family mode requires everyone to be on the same device or the same account network. A huge market segment is adult children managing elderly parents remotely.
+The current family mode requires everyone to be on the same device or the same account network. A large market segment is adult children managing elderly parents remotely.
 
 - Family members can be genuinely remote — each with their own Google account
 - The caregiver (e.g., son/daughter) gets a read-only or full-control view of a parent's cabinet
 - Changes sync in real-time over the internet
-- **Why this matters:** India has ~100M elderly people; caregiving apps for this segment are heavily underserved
+- **Why this matters:** India has roughly 100M elderly people; caregiving apps for this segment are heavily underserved
 
 ---
 
@@ -116,7 +116,7 @@ The current family mode requires everyone to be on the same device or the same a
 Gemini already supports Hindi, Bengali, Tamil, Telugu, Marathi and other Indian languages. A large portion of prescriptions in India are handwritten in regional languages or Hindi.
 
 - Detect the language of the prescription automatically (Gemini can do this)
-- Extract medicine names even from Hindi/Devnagari prescriptions
+- Extract medicine names even from Hindi/Devanagari prescriptions
 - Display the UI in the user's preferred language
 - **Market insight:** 65% of India's population is not comfortable in English — this unlocks a massive new user base
 
@@ -125,7 +125,7 @@ Gemini already supports Hindi, Bengali, Tamil, Telugu, Marathi and other Indian 
 ### 10. Vitals Tracker (Blood Pressure, Sugar, Weight)
 **Impact: Medium | Effort: Medium**
 
-Apps like Samsung Health, HealthifyMe, and even Google Fit are moving toward integrating vitals with medicine schedules. Users on chronic medicines (BP, diabetes) want to see if their readings correlate with medicine adherence.
+Apps like Samsung Health, HealthifyMe, and Google Fit are moving toward integrating vitals with medicine schedules. Users on chronic medicines (BP, diabetes) want to see if their readings correlate with medicine adherence.
 
 - Add a simple log screen: Date, Vital type, Reading
 - Show a simple line chart of readings over time
@@ -133,16 +133,16 @@ Apps like Samsung Health, HealthifyMe, and even Google Fit are moving toward int
 
 ---
 
-## 🟨 Priority 3 — Differentiators That Make the App Stand Out
+## Priority 3 — Differentiators That Make the App Stand Out
 
 ### 11. AI Drug Interaction Checker
 **Impact: Very High | Effort: Medium**
 
-When a user adds a new medicine, the app can warn if it's known to interact with any medicine already in their cabinet. This is a genuine safety feature that no Indian consumer app currently offers well.
+When a user adds a new medicine, the app can warn if it is known to interact with any medicine already in their cabinet. This is a genuine safety feature that no Indian consumer app currently offers well.
 
-- When a new medicine is added, send a prompt to Gemini: *"Does [Medicine A] interact with [Medicine B], [Medicine C]?"*
-- Show a soft warning if there's a known interaction: *"Ibuprofen may interact with Warfarin already in your cabinet. Please check with your doctor."*
-- **This alone would make DawaiSathi stand out from every competitor**
+- When a new medicine is added, query Gemini: *"Does [Medicine A] interact with [Medicine B], [Medicine C]?"*
+- Show a soft warning if there is a known interaction: *"Ibuprofen may interact with Warfarin already in your cabinet. Please check with your doctor."*
+- This alone would make DawaiSathi stand out from every competitor in the market
 
 ---
 
@@ -162,9 +162,9 @@ Many users receive prescriptions as WhatsApp photos or PDF scans from their doct
 
 When a user sees an unfamiliar medicine name in their cabinet, they want to know what it is for without leaving the app.
 
-- Long-press a medicine name → show an AI-generated summary: *"Metformin is used to manage Type 2 diabetes by lowering blood sugar levels."*
+- Long-press a medicine name to show an AI-generated summary: *"Metformin is used to manage Type 2 diabetes by lowering blood sugar levels."*
 - Powered by Gemini — no external drug database needed
-- Clearly state: *"Always follow your doctor's instructions"*
+- Always display: *"Follow your doctor's instructions. This is general information only."*
 
 ---
 
@@ -178,7 +178,7 @@ A frequently requested UI feature across all health apps — especially relevant
 ### 15. Export to PDF / Share Cabinet
 **Impact: Medium | Effort: Medium**
 
-When visiting a doctor, users want to show their full current medicine list. A "Share My Cabinet" button that generates a clean PDF of all medicines, doses, and schedules would be extremely practical for doctor visits.
+When visiting a doctor, users want to show their full current medicine list. A "Share My Cabinet" button that generates a clean PDF of all medicines, doses, and schedules would be practical for doctor visits.
 
 ---
 
@@ -187,11 +187,11 @@ When visiting a doctor, users want to show their full current medicine list. A "
 
 - Show dose reminders on Apple Watch or Wear OS
 - Confirm a dose taken directly from the watch
-- Long-term play, not immediate priority
+- Long-term feature, not immediate priority
 
 ---
 
-## 🟦 Infrastructure & Technical Upgrades
+## Infrastructure and Technical Upgrades
 
 These are not user-visible features but are essential for the app to scale and perform properly in production.
 
@@ -200,52 +200,40 @@ These are not user-visible features but are essential for the app to scale and p
 
 ### T2. Deploy Backend to a Real Server
 **Why:** Currently the Flask server runs on your laptop. For real users, deploy to:
-- **Railway** (simplest, free tier available)
-- **Render** (good free tier)
-- **Google Cloud Run** (scales to zero, pay per use)
+- Railway (simplest, free tier available)
+- Render (good free tier)
+- Google Cloud Run (scales to zero, pay per use)
 
-### T3. Fix the PWA Cache URLs for Production
-**Why:** The `vite.config.ts` workbox patterns currently cache `http://localhost:5000/api/...` which only works locally. When deployed, these patterns need to match the real backend domain. See the Offline section below for full details.
+### T3. Fix PWA Cache URLs for Production
+**Why:** The `vite.config.ts` workbox patterns have been updated to use relative paths, so they now work on any domain. This is already fixed in the current codebase.
 
 ### T4. Rate Limiting on Gemini API Calls
-**Why:** Each scan makes a call to Gemini Vision which costs money per call. Without rate limiting, a single user could spam the scan button and generate high API costs.
+**Why:** Each scan makes a call to Gemini Vision which costs money per call. Without rate limiting, a single user could repeatedly hit the scan endpoint and generate high API costs.
 
 ### T5. Image Compression Before Upload
-**Why:** Phone cameras take 4-10MB photos. Compressing to 300-500KB before sending to the backend would make the cabinet load significantly faster on mobile, especially on slower connections (3G/4G).
+**Why:** Phone cameras take 4-10MB photos. Compressing to 300-500KB before sending to the backend would make the cabinet load significantly faster on mobile, especially on slower connections.
 
 ---
 
-## 📵 Offline Capability — Honest Assessment
+## Offline Capability — Honest Assessment
 
 ### What Works Offline (After Add to Home Screen)
 
-When a user adds DawaiSathi to their home screen and opens it **without internet**, here is what actually works:
+When a user adds DawaiSathi to their home screen and opens it without internet, here is what actually works:
 
 | Feature | Offline Status | Reason |
 |---|---|---|
-| App shell loads | ✅ Works | Vite PWA caches all JS, CSS, HTML at install time |
-| Cabinet view (cached data) | ⚠️ Partially works | If the user visited the cabinet while online, the `NetworkFirst` strategy caches the last API response for up to 24 hours |
-| Medicine photos | ⚠️ Partially works | If photos were viewed while online, `CacheFirst` serves them from cache for up to 7 days |
-| Scanner / Camera | ❌ Does not work | Gemini AI call requires internet. Camera preview itself works but AI extraction fails |
-| Google Sign In | ❌ Does not work | OAuth requires internet — user must be already logged in |
-| Adding new medicines | ❌ Does not work | Requires backend API call to save |
-| Family sync | ❌ Does not work | Requires backend |
-
-### The Critical Gap — `localhost:5000` Cache Bug
-
-Right now in `vite.config.ts`, the workbox cache patterns are:
-```
-/^http:\/\/localhost:5000\/api\/.*/i
-/^http:\/\/localhost:5000\/uploads\/.*/i
-```
-
-**This means the PWA only caches data when accessed via localhost on your own computer.** When a real user opens the tunnel URL or a deployed URL, those patterns never match — so nothing gets cached and the app is fully online-dependent even in theory.
-
-**To fix this for production:** the patterns need to match the actual deployed backend URL, or use a relative path pattern.
+| App shell loads | Works | Vite PWA caches all JS, CSS, HTML at install time |
+| Cabinet view (cached data) | Partial | If the user visited the cabinet while online, NetworkFirst caches the last API response for up to 24 hours |
+| Medicine photos | Partial | If photos were viewed while online, CacheFirst serves them from cache for up to 30 days |
+| Scanner / Camera | Does not work | Gemini AI call requires internet. Camera preview works but AI extraction fails |
+| Google Sign In | Does not work | OAuth requires internet — user must already be logged in |
+| Adding new medicines | Does not work | Requires backend API call to save |
+| Family sync | Does not work | Requires backend |
 
 ### What Offline Could Look Like With Proper Investment
 
-With a proper offline-first architecture (IndexedDB for local data, background sync for writes), the cabinet view could work 100% offline — showing the user their full medicine schedule even with no internet. This is Priority T3 in the technical upgrades above and is achievable in a few days of work.
+With a proper offline-first architecture (IndexedDB for local data, background sync for writes), the cabinet view could work fully offline — showing the user their full medicine schedule even with no internet. This is achievable in a few days of additional work.
 
 ---
 
@@ -253,28 +241,28 @@ With a proper offline-first architecture (IndexedDB for local data, background s
 
 | # | Upgrade | Impact | Effort | Priority |
 |---|---|---|---|---|
-| 1 | Push Notifications | Critical | Medium | 🟥 Now |
-| 2 | Mark as Taken | Critical | Low | 🟥 Now |
-| 3 | Refill Tracker | High | Medium | 🟥 Now |
-| 4 | Expiry Tracking | High | Low | 🟥 Now |
-| 5 | Prescription History | High | Medium | 🟧 Next |
-| 6 | Dose Instructions | High | Low | 🟧 Next |
-| 7 | Doctor Notes | Medium | Low | 🟧 Next |
-| 8 | Remote Caregiver Mode | High | High | 🟧 Next |
-| 9 | Regional Languages | Very High | Medium | 🟧 Next |
-| 10 | Vitals Tracker | Medium | Medium | 🟧 Next |
-| 11 | AI Drug Interaction | Very High | Medium | 🟨 Later |
-| 12 | Scan from Gallery | High | Low | 🟨 Later |
-| 13 | Medicine Info Card | Medium | Low | 🟨 Later |
-| 14 | Dark Mode | Medium | Low | 🟨 Later |
-| 15 | Export to PDF | Medium | Medium | 🟨 Later |
-| 16 | Wearable Integration | Medium | High | 🟨 Later |
-| T1 | PostgreSQL Migration | Infrastructure | Low | 🟥 Now |
-| T2 | Deploy to Real Server | Infrastructure | Medium | 🟥 Now |
-| T3 | Fix PWA Cache URLs | Infrastructure | Low | 🟥 Now |
-| T4 | API Rate Limiting | Infrastructure | Low | 🟧 Next |
-| T5 | Image Compression | Infrastructure | Low | 🟧 Next |
+| 1 | Push Notifications | Critical | Medium | Now |
+| 2 | Mark as Taken | Critical | Low | Now |
+| 3 | Refill Tracker | High | Medium | Now |
+| 4 | Expiry Tracking | High | Low | Now |
+| 5 | Prescription History | High | Medium | Next |
+| 6 | Dose Instructions | High | Low | Next |
+| 7 | Doctor Notes | Medium | Low | Next |
+| 8 | Remote Caregiver Mode | High | High | Next |
+| 9 | Regional Languages | Very High | Medium | Next |
+| 10 | Vitals Tracker | Medium | Medium | Next |
+| 11 | AI Drug Interaction | Very High | Medium | Later |
+| 12 | Scan from Gallery | High | Low | Later |
+| 13 | Medicine Info Card | Medium | Low | Later |
+| 14 | Dark Mode | Medium | Low | Later |
+| 15 | Export to PDF | Medium | Medium | Later |
+| 16 | Wearable Integration | Medium | High | Later |
+| T1 | PostgreSQL Migration | Infrastructure | Low | Now |
+| T2 | Deploy to Real Server | Infrastructure | Medium | Now |
+| T3 | Fix PWA Cache URLs | Infrastructure | Low | Done |
+| T4 | API Rate Limiting | Infrastructure | Low | Next |
+| T5 | Image Compression | Infrastructure | Low | Next |
 
 ---
 
-*Document generated for DawaiSathi v1 — Project Eigen*
+*Document prepared for DawaiSathi v1 — Project Eigen*

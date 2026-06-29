@@ -11,3 +11,5 @@ PyJWT==2.9.0
 cryptography==42.0.8
 apscheduler==3.10.4
 pywebpush==1.14.1
+gunicorn==22.0.0
+psycopg2-binary==2.9.9

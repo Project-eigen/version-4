@@ -3,7 +3,8 @@ import { Pill } from 'lucide-react'
 
 export default function AuthGate() {
   const handleLogin = () => {
-    window.location.href = '/api/auth/google'
+    const apiBase = import.meta.env.VITE_API_URL || ''
+    window.location.href = `${apiBase}/api/auth/google`
   }
 
   return (

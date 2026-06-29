@@ -53,15 +53,20 @@ export default defineConfig({
     rollupOptions: {
       output: {
         // Manual chunk splitting to reduce initial bundle size (improves TBT)
-        manualChunks: {
-          // React core — always needed
-          'react-vendor': ['react', 'react-dom'],
-          // Router — needed on first load
-          'router': ['react-router-dom'],
-          // Icons — large library, separate chunk
-          'icons': ['lucide-react'],
-          // Axios — API calls
-          'axios': ['axios'],
+        // Vite 8 uses Rolldown which requires manualChunks as a function
+        manualChunks(id: string) {
+          if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/')) {
+            return 'react-vendor'
+          }
+          if (id.includes('node_modules/react-router-dom')) {
+            return 'router'
+          }
+          if (id.includes('node_modules/lucide-react')) {
+            return 'icons'
+          }
+          if (id.includes('node_modules/axios')) {
+            return 'axios'
+          }
         },
       },
     },

@@ -75,7 +75,7 @@ def send_push_notification(
             data=payload,
             vapid_private_key=private_key,
             vapid_claims={"sub": f"mailto:{claims_email}"},
-            extra_headers=extra_headers,
+            headers=extra_headers,
         )
         return True
 

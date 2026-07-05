@@ -35,24 +35,32 @@ def create_app():
         db.create_all()
         os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
-        # Migrate old push subscriptions to the new table
+        # Migrate old push subscriptions to the new table (if not already there)
         from models import User, PushSubscription
         legacy_users = User.query.filter(
             User.push_subscription_json.isnot(None)
         ).all()
+        migrated = 0
         for user in legacy_users:
-            exists = PushSubscription.query.filter_by(user_id=user.id).first()
-            if not exists and user.push_subscription_json:
-                try:
-                    sub_data = json.loads(user.push_subscription_json)
-                    db.session.add(PushSubscription(
-                        user_id=user.id,
-                        endpoint=sub_data.get("endpoint", ""),
-                        subscription_json=user.push_subscription_json,
-                    ))
-                except Exception:
-                    pass  # skip malformed subs
-        if legacy_users:
+            if not user.push_subscription_json:
+                continue
+            endpoint = ""
+            try:
+                sub_data = json.loads(user.push_subscription_json)
+                endpoint = sub_data.get("endpoint", "")
+            except Exception:
+                pass
+            if not endpoint:
+                continue
+            already = PushSubscription.query.filter_by(endpoint=endpoint).first()
+            if not already:
+                db.session.add(PushSubscription(
+                    user_id=user.id,
+                    endpoint=endpoint,
+                    subscription_json=user.push_subscription_json,
+                ))
+                migrated += 1
+        if migrated:
             db.session.commit()
 
     # Health check route for UptimeRobot

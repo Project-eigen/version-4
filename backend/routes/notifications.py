@@ -293,48 +293,62 @@ def push_subscribe():
 
 @notifications_bp.route("/api/notifications/push/unsubscribe", methods=["POST"])
 def push_unsubscribe():
+    """Remove the subscription for this specific device (identified by endpoint)."""
     user = get_current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
     data = request.get_json(silent=True) or {}
     endpoint = data.get("endpoint")
 
-    query = PushSubscription.query.filter_by(user_id=user.id)
-    if endpoint:
-        query = query.filter_by(endpoint=endpoint)
-    query.delete()
+    if not endpoint:
+        return jsonify({"error": "No endpoint provided — use subscribe endpoint instead"}), 400
+
+    deleted = PushSubscription.query.filter_by(user_id=user.id, endpoint=endpoint).delete()
     db.session.commit()
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "deleted": deleted})
 
 
 @notifications_bp.route("/api/notifications/push/test", methods=["POST"])
 def push_test():
-    """Sends a test push to verify the subscription is working."""
+    """Sends a test push to ALL devices for this user."""
     user = get_current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
 
-    sub = PushSubscription.query.filter_by(user_id=user.id).first()
-    if not sub:
+    from notification_helpers import send_push_notification
+
+    subs = PushSubscription.query.filter_by(user_id=user.id).all()
+    if not subs:
         return jsonify({"error": "No push subscription saved"}), 400
 
-    from notification_helpers import send_push_notification
-    result = send_push_notification(
-        sub.subscription_json,
-        title="💊 DawaiSathi — Test Notification",
-        body="Push notifications are working correctly! ✓",
-        url="/cabinet",
-    )
+    results = []
+    expired = []
+    for sub in subs:
+        result = send_push_notification(
+            sub.subscription_json,
+            title="💊 DawaiSathi — Test Notification",
+            body="Push notifications are working correctly! ✓",
+            url="/cabinet",
+        )
+        if result is True:
+            results.append("ok")
+        elif result == "expired":
+            expired.append(sub)
+            results.append("expired")
+        else:
+            results.append(str(result))
 
-    if result is True:
-        return jsonify({"ok": True})
-    if result == "expired":
+    for sub in expired:
         db.session.delete(sub)
+    if expired:
         db.session.commit()
-        return jsonify({"error": "Subscription expired — please re-enable"}), 400
-    if isinstance(result, str):
-        return jsonify({"error": f"Push send failed: {result}"}), 500
-    return jsonify({"error": "Push send failed — check VAPID keys in .env"}), 500
+
+    if all(r == "ok" for r in results):
+        return jsonify({"ok": True, "devices": len(results)})
+    if any(r == "ok" for r in results):
+        errors = [r for r in results if r != "ok"]
+        return jsonify({"warning": f"Sent to {sum(1 for r in results if r=='ok')}/{len(results)} devices", "errors": errors}), 200
+    return jsonify({"error": f"All devices failed: {results[0]}"}), 500
 
 
 # ── Utility: re-register Telegram webhook ────────────────────────────────────

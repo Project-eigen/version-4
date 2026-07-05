@@ -310,14 +310,23 @@ def push_unsubscribe():
 
 @notifications_bp.route("/api/notifications/push/test", methods=["POST"])
 def push_test():
-    """Sends a test push to ALL devices for this user."""
+    """Sends a test push to the requesting device (or all if no endpoint given)."""
     user = get_current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
 
     from notification_helpers import send_push_notification
 
-    subs = PushSubscription.query.filter_by(user_id=user.id).all()
+    data = request.get_json(silent=True) or {}
+    endpoint = data.get("endpoint")
+
+    if endpoint:
+        subs = PushSubscription.query.filter_by(user_id=user.id, endpoint=endpoint).all()
+        label = "this device"
+    else:
+        subs = PushSubscription.query.filter_by(user_id=user.id).all()
+        label = f"{len(subs)} devices"
+
     if not subs:
         return jsonify({"error": "No push subscription saved"}), 400
 
@@ -344,11 +353,11 @@ def push_test():
         db.session.commit()
 
     if all(r == "ok" for r in results):
-        return jsonify({"ok": True, "devices": len(results)})
+        return jsonify({"ok": True, "device": label})
     if any(r == "ok" for r in results):
         errors = [r for r in results if r != "ok"]
-        return jsonify({"warning": f"Sent to {sum(1 for r in results if r=='ok')}/{len(results)} devices", "errors": errors}), 200
-    return jsonify({"error": f"All devices failed: {results[0]}"}), 500
+        return jsonify({"warning": f"Partial success — {label}", "errors": errors}), 200
+    return jsonify({"error": f"Failed: {results[0]}"}), 500
 
 
 # ── Utility: re-register Telegram webhook ────────────────────────────────────

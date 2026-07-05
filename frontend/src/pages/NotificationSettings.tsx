@@ -166,8 +166,11 @@ export default function NotificationSettings() {
   const sendTestPush = async () => {
     setTestLoading(true)
     try {
-      await api.post('/notifications/push/test')
-      showToast('Test notification sent — check your phone! 🔔')
+      const sw = await navigator.serviceWorker.ready
+      const sub = await sw.pushManager.getSubscription()
+      const endpoint = sub ? sub.endpoint : undefined
+      await api.post('/notifications/push/test', { endpoint })
+      showToast('Test notification sent to this device 🔔')
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
       showToast(msg || 'Test failed', 'error')

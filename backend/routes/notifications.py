@@ -380,6 +380,9 @@ def push_test():
     error_msg = results[0] if results else "unknown error"
     if error_msg == "False":
         return jsonify({"error": "Push notification failed — VAPID keys may be missing or pywebpush not installed on the server. Check server logs."}), 500
+    if error_msg.startswith("push_service_error_"):
+        status = error_msg.replace("push_service_error_", "")
+        return jsonify({"error": f"Push service rejected the subscription (HTTP {status}). Try disabling and re-enabling notifications on this device."}), 500
     if error_msg.startswith("push_error_"):
         kind = error_msg.replace("push_error_", "")
         return jsonify({"error": f"Push service error: {kind}. Check server logs for details."}), 500

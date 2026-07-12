@@ -112,8 +112,8 @@ class MedicineEntry(db.Model):
     schedule_json = db.Column(db.Text)  # JSON: ["morning", "evening"] etc.
     days = db.Column(db.Integer, nullable=True)  # Number of days to take this medicine
     instructions = db.Column(db.String(256), nullable=True)  # e.g. "After Food", "Before Breakfast"
-    scan_image_url = db.Column(db.String(512))  # image from scanner
-    pack_image_url = db.Column(db.String(512))  # image of the physical pack
+    scan_image_url = db.Column(db.Text)  # image from scanner
+    pack_image_url = db.Column(db.Text)  # image of the physical pack
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     logs = db.relationship("MedicineLog", backref="medicine", lazy=True)

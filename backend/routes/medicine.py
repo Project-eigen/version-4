@@ -67,17 +67,17 @@ def scan_medicine():
     image_file = request.files["image"]
     image_bytes = image_file.read()
 
-    # Save scan image
-    upload_dir = current_app.config["UPLOAD_FOLDER"]
-    os.makedirs(upload_dir, exist_ok=True)
-    filename = f"scan_{uuid.uuid4().hex}.jpg"
-    filepath = os.path.join(upload_dir, filename)
-
-    # Convert to JPEG and save
+    # Open image, convert to RGB, downscale to max 1000px, and convert to base64
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    img.save(filepath, "JPEG", quality=85)
+    max_size = 1000
+    if max(img.size) > max_size:
+        img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
 
-    scan_image_url = f"/uploads/{filename}"
+    # Encode to Base64
+    buffered = io.BytesIO()
+    img.save(buffered, format="JPEG", quality=75)
+    img_base64_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+    scan_image_url = f"data:image/jpeg;base64,{img_base64_str}"
 
     # Call Gemini API
     try:
@@ -85,8 +85,7 @@ def scan_medicine():
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel("gemini-2.5-flash")
 
-        img_for_gemini = Image.open(filepath)
-        response = model.generate_content([SCAN_PROMPT, img_for_gemini])
+        response = model.generate_content([SCAN_PROMPT, img])
         raw_text = response.text.strip()
 
         # Clean up markdown code blocks using robust regex finding
@@ -159,14 +158,16 @@ def add_medicine():
 
     pack_image_url = None
     if "pack_image" in request.files:
-        upload_dir = current_app.config["UPLOAD_FOLDER"]
-        os.makedirs(upload_dir, exist_ok=True)
         pack_file = request.files["pack_image"]
-        pack_filename = f"pack_{uuid.uuid4().hex}.jpg"
-        pack_filepath = os.path.join(upload_dir, pack_filename)
         pack_img = Image.open(pack_file).convert("RGB")
-        pack_img.save(pack_filepath, "JPEG", quality=85)
-        pack_image_url = f"/uploads/{pack_filename}"
+        max_size = 800
+        if max(pack_img.size) > max_size:
+            pack_img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+        
+        buffered = io.BytesIO()
+        pack_img.save(buffered, format="JPEG", quality=75)
+        pack_img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        pack_image_url = f"data:image/jpeg;base64,{pack_img_base64}"
 
     entry = MedicineEntry(
         user_id=target_user_id,
@@ -340,14 +341,16 @@ def update_medicine(entry_id):
             entry.days = None
 
     if "pack_image" in request.files:
-        upload_dir = current_app.config["UPLOAD_FOLDER"]
-        os.makedirs(upload_dir, exist_ok=True)
         pack_file = request.files["pack_image"]
-        pack_filename = f"pack_{uuid.uuid4().hex}.jpg"
-        pack_filepath = os.path.join(upload_dir, pack_filename)
         pack_img = Image.open(pack_file).convert("RGB")
-        pack_img.save(pack_filepath, "JPEG", quality=85)
-        entry.pack_image_url = f"/uploads/{pack_filename}"
+        max_size = 800
+        if max(pack_img.size) > max_size:
+            pack_img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+        
+        buffered = io.BytesIO()
+        pack_img.save(buffered, format="JPEG", quality=75)
+        pack_img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        entry.pack_image_url = f"data:image/jpeg;base64,{pack_img_base64}"
 
     db.session.commit()
     return jsonify({"message": "Medicine updated", "medicine": entry.to_dict()})

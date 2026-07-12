@@ -14,6 +14,7 @@ export default function Scanner() {
   const [cameraError, setCameraError] = useState(false)
   const [inboxCount, setInboxCount] = useState(0)
   const [flashActive, setFlashActive] = useState(false)
+  const [capturedPreview, setCapturedPreview] = useState<string | null>(null)
 
   const toggleFlash = async () => {
     try {
@@ -49,6 +50,7 @@ export default function Scanner() {
     if (!imageSrc) return
 
     setCapturing(true)
+    setCapturedPreview(imageSrc)
     try {
       const res = await fetch(imageSrc)
       const blob = await res.blob()
@@ -70,6 +72,7 @@ export default function Scanner() {
     } catch (err) {
       console.error('Scan failed', err)
       setCapturing(false)
+      setCapturedPreview(null)
     }
   }, [capturing, navigate, activeMemberId])
 
@@ -78,8 +81,9 @@ export default function Scanner() {
     if (!file) return
 
     setCapturing(true)
+    const imageSrc = URL.createObjectURL(file)
+    setCapturedPreview(imageSrc)
     try {
-      const imageSrc = URL.createObjectURL(file)
       const formData = new FormData()
       formData.append('image', file)
 
@@ -97,6 +101,7 @@ export default function Scanner() {
     } catch (err) {
       console.error('Scan upload failed', err)
       setCapturing(false)
+      setCapturedPreview(null)
     }
   }, [navigate, activeMemberId])
 
@@ -131,7 +136,23 @@ export default function Scanner() {
 
       {/* Full-screen camera view */}
       <div className="scanner-camera-area">
-        {cameraError ? (
+        {capturedPreview && (
+          <img
+            src={capturedPreview}
+            className="scanner-video-feed"
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 25 }}
+            alt="Captured Preview"
+          />
+        )}
+        {capturing && (
+          <div className="scanner-analyzing-overlay">
+            <div className="loading-spinner-container">
+              <div className="loading-spinner" style={{ borderTopColor: 'var(--accent-teal)', width: 36, height: 36 }} />
+            </div>
+            <span className="scanner-analyzing-text">Analyzing prescription…</span>
+          </div>
+        )}
+        {cameraError && !capturedPreview ? (
           <div className="scanner-error-state">
             <ZapOff size={52} opacity={0.4} color="white" />
             <p className="scanner-error-title">Camera Unavailable</p>
@@ -139,28 +160,32 @@ export default function Scanner() {
           </div>
         ) : (
           <>
-            <Webcam
-              ref={webcamRef}
-              screenshotFormat="image/jpeg"
-              screenshotQuality={1.0}
-              videoConstraints={{
-                facingMode: { ideal: 'environment' },
-                width: { ideal: 1920 },
-                height: { ideal: 1080 },
-              }}
-              onUserMediaError={() => setCameraError(true)}
-              className="scanner-video-feed"
-              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-            />
+            {!capturedPreview && (
+              <Webcam
+                ref={webcamRef}
+                screenshotFormat="image/jpeg"
+                screenshotQuality={1.0}
+                videoConstraints={{
+                  facingMode: { ideal: 'environment' },
+                  width: { ideal: 1920 },
+                  height: { ideal: 1080 },
+                }}
+                onUserMediaError={() => setCameraError(true)}
+                className="scanner-video-feed"
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            )}
 
             {/* Viewfinder overlay */}
-            <div className="scanner-viewfinder">
-              <div className="scanner-scan-line" />
-              <div className="scanner-corner tl" />
-              <div className="scanner-corner tr" />
-              <div className="scanner-corner bl" />
-              <div className="scanner-corner br" />
-            </div>
+            {!capturedPreview && (
+              <div className="scanner-viewfinder">
+                <div className="scanner-scan-line" />
+                <div className="scanner-corner tl" />
+                <div className="scanner-corner tr" />
+                <div className="scanner-corner bl" />
+                <div className="scanner-corner br" />
+              </div>
+            )}
 
             {/* Hint label */}
             <div className="scanner-hint">
@@ -171,54 +196,50 @@ export default function Scanner() {
       </div>
 
       {/* Capture button pinned above bottom */}
-      <div className="scanner-capture-dock">
-        {capturing ? (
-          <div className="scanner-analyzing">
-            <div className="loading-spinner" style={{ borderTopColor: 'var(--accent-teal)', width: 28, height: 28 }} />
-            <span>Analyzing prescription…</span>
-          </div>
-        ) : (
-          <div style={{ position: 'relative', display: 'inline-block' }}>
-            <button
-              className="capture-btn"
-              onClick={handleCapture}
-              disabled={cameraError}
-              id="capture-btn"
-              aria-label="Capture medicine image"
-              type="button"
-            >
-              <Camera size={28} color="#0f172a" strokeWidth={2} />
-            </button>
-            
-            <label
-              style={{
-                position: 'absolute',
-                bottom: '-4px',
-                right: '-4px',
-                width: '28px',
-                height: '28px',
-                borderRadius: '50%',
-                backgroundColor: '#0d9488',
-                border: '2px solid #0f172a',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-                zIndex: 10,
-              }}
-              title="Upload prescription photo"
-            >
-              <Upload size={14} color="#ffffff" strokeWidth={2.5} />
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleUpload}
-                style={{ display: 'none' }}
-              />
-            </label>
-          </div>
-        )}
+      <div className={`scanner-capture-dock ${capturing ? 'processing-state' : ''}`}>
+        <div style={{ position: 'relative', display: 'inline-block' }}>
+          <button
+            className="capture-btn"
+            onClick={handleCapture}
+            disabled={cameraError || capturing}
+            id="capture-btn"
+            aria-label="Capture medicine image"
+            type="button"
+          >
+            <Camera size={28} color="#0f172a" strokeWidth={2} />
+          </button>
+          
+          <label
+            style={{
+              position: 'absolute',
+              bottom: '-4px',
+              right: '-4px',
+              width: '28px',
+              height: '28px',
+              borderRadius: '50%',
+              backgroundColor: '#0d9488',
+              border: '2px solid #0f172a',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: capturing ? 'not-allowed' : 'pointer',
+              opacity: capturing ? 0.5 : 1,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+              zIndex: 10,
+              pointerEvents: capturing ? 'none' : 'auto',
+            }}
+            title="Upload prescription photo"
+          >
+            <Upload size={14} color="#ffffff" strokeWidth={2.5} />
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleUpload}
+              style={{ display: 'none' }}
+              disabled={capturing}
+            />
+          </label>
+        </div>
       </div>
     </div>
   )

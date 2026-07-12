@@ -680,14 +680,35 @@ body {
   z-index: 20;
 }
 
-.scanner-analyzing {
+.scanner-analyzing-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 9, 15, 0.82);
+  z-index: 26;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  color: rgba(255,255,255,0.85);
-  font-size: 0.82rem;
+  justify-content: center;
+  gap: 16px;
+  backdrop-filter: blur(4px);
+}
+
+.scanner-analyzing-text {
+  color: white;
+  font-size: 0.88rem;
   font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.loading-spinner-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scanner-capture-dock.processing-state {
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 .scanner-error-state {

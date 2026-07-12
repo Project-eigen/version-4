@@ -79,6 +79,25 @@ def create_app():
         from scheduler import init_scheduler
         init_scheduler(app)
 
+        # Automatically register Telegram webhook on startup
+        token = app.config.get("TELEGRAM_BOT_TOKEN", "")
+        base_url = app.config.get("TELEGRAM_WEBHOOK_URL", "").rstrip("/")
+        if token and base_url:
+            import requests
+            webhook_url = f"{base_url}/api/telegram/webhook"
+            try:
+                resp = requests.post(
+                    f"https://api.telegram.org/bot{token}/setWebhook",
+                    json={"url": webhook_url},
+                    timeout=10,
+                )
+                if resp.ok:
+                    app.logger.info(f"Telegram webhook auto-set to: {webhook_url}")
+                else:
+                    app.logger.error(f"Failed to auto-set Telegram webhook: {resp.json()}")
+            except Exception as exc:
+                app.logger.error(f"Error setting Telegram webhook on startup: {exc}")
+
     return app
 
 

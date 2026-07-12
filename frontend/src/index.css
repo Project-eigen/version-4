@@ -352,28 +352,172 @@ body {
 }
 
 /* ===================== MEDICINE CARD ===================== */
-.medicine-card {
-  margin: 0 12px 8px;
+.medicine-card-v2 {
+  margin: 0 12px 10px;
   background: var(--bg-card);
-  border-radius: 18px;
+  border-radius: 20px;
   border: 1px solid var(--border-subtle);
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 12px;
-  padding: 12px 12px 12px 14px;
+  padding: 16px;
   transition: all 0.2s ease;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+  position: relative;
+  overflow: hidden;
 }
 
-.medicine-card:hover {
-  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+.medicine-card-v2:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
   transform: translateY(-1px);
 }
 
-.medicine-card.morning { border-left: 4px solid var(--morning-color); }
-.medicine-card.afternoon { border-left: 4px solid var(--afternoon-color); }
-.medicine-card.evening { border-left: 4px solid var(--evening-color); }
-.medicine-card.night { border-left: 4px solid #4e7db5; }
+.medicine-card-v2.morning { border-left: 4px solid var(--morning-color); }
+.medicine-card-v2.afternoon { border-left: 4px solid var(--afternoon-color); }
+.medicine-card-v2.evening { border-left: 4px solid var(--evening-color); }
+.medicine-card-v2.night { border-left: 4px solid #4e7db5; }
+
+/* Top details row */
+.card-top {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  position: relative;
+}
+
+.card-thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.card-info {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: 68px; /* Leave space for corner controls */
+}
+
+.med-name {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.med-meta {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meta-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  opacity: 0.5;
+}
+
+.med-instructions {
+  font-size: 0.76rem;
+  color: #d97706;
+  background: rgba(217, 119, 6, 0.08);
+  border: 1px solid rgba(217, 119, 6, 0.15);
+  padding: 2px 8px;
+  border-radius: 6px;
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+/* Absolute Corner actions */
+.card-actions-corner {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  gap: 6px;
+}
+
+.action-btn-circle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+
+.action-btn-circle:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.action-btn-circle.delete:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+/* Bottom Row Logging UI */
+.card-bottom {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Full-width Logging Button */
+.hold-log-bar {
+  width: 100%;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.hold-log-bar:active {
+  transform: scale(0.99);
+}
+
+/* Logged status styling */
+.hold-log-bar.logged {
+  background: rgba(22, 163, 74, 0.1);
+  border-color: rgba(22, 163, 74, 0.3);
+  color: #16a34a;
+  cursor: default;
+}
 
 .med-thumb {
   width: 52px;

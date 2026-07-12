@@ -61,78 +61,81 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete, onEdit }: MedC
   }
 
   return (
-    <div className={`medicine-card ${slot}`}>
-      {/* Image thumbnail */}
-      <div
-        className="med-thumb"
-        onClick={handleThumbClick}
-        style={{ cursor: med.pack_image_url ? 'pointer' : 'default' }}
-      >
-        {med.pack_image_url ? (
-          <img
-            src={getImageUrl(med.pack_image_url)}
-            alt={med.name}
-            width={56}
-            height={56}
-            loading="lazy"
-            decoding="async"
-            style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 12 }}
-          />
-        ) : (
-          <Pill size={22} color="var(--text-muted)" />
-        )}
-      </div>
-
-      {/* Info */}
-      <div className="med-info" style={{ flex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <div className="med-name">{med.name}</div>
-          {med.scan_image_url && (
-            <button
-              className="view-rx-badge"
-              onClick={() => onImageClick(med.scan_image_url)}
-              title="View original prescription reference"
-              type="button"
-            >
-              Rx
-            </button>
+    <div className={`medicine-card-v2 ${slot}`}>
+      {/* Top Section */}
+      <div className="card-top">
+        <div
+          className="card-thumb"
+          onClick={handleThumbClick}
+          style={{ cursor: med.pack_image_url ? 'pointer' : 'default' }}
+        >
+          {med.pack_image_url ? (
+            <img
+              src={getImageUrl(med.pack_image_url)}
+              alt={med.name}
+              style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 12 }}
+            />
+          ) : (
+            <Pill size={22} color="var(--text-muted)" />
           )}
         </div>
-        {med.dosage && <div className="med-dosage">{med.dosage}</div>}
-        {med.instructions && (
-          <div className="med-instructions">{med.instructions}</div>
-        )}
-        {med.days != null && (
-          <div className="med-days-badge">{med.days}d</div>
-        )}
+
+        <div className="card-info">
+          <div className="med-name">
+            {med.name}
+            {med.scan_image_url && (
+              <button
+                className="view-rx-badge"
+                onClick={() => onImageClick(med.scan_image_url)}
+                title="View original prescription reference"
+                type="button"
+              >
+                Rx
+              </button>
+            )}
+          </div>
+          
+          <div className="med-meta">
+            {med.dosage && <span>Dosage: {med.dosage}</span>}
+            {med.dosage && med.days != null && <span className="meta-dot"></span>}
+            {med.days != null && <span>Duration: {med.days} days</span>}
+          </div>
+
+          {med.instructions && (
+            <div className="med-instructions">{med.instructions}</div>
+          )}
+        </div>
+
+        {/* Absolute Corner Actions */}
+        <div className="card-actions-corner">
+          <button
+            className="action-btn-circle"
+            onClick={() => onEdit(med)}
+            aria-label="Edit medicine"
+            type="button"
+          >
+            <Pencil size={14} />
+          </button>
+
+          <button
+            className="action-btn-circle delete"
+            onClick={() => {
+              if (confirm(`Are you sure you want to permanently delete ${med.name} from the cabinet?`)) {
+                onDelete(med.id)
+              }
+            }}
+            aria-label="Delete medicine"
+            type="button"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
       </div>
 
-      {/* Action panel: Edit + Delete + Hold button */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {/* Bottom Section */}
+      <div className="card-bottom">
         <button
-          className="edit-med-btn"
-          onClick={() => onEdit(med)}
-          aria-label="Edit medicine"
-          type="button"
-        >
-          <Pencil size={15} />
-        </button>
-
-        <button
-          className="delete-med-btn"
-          onClick={() => {
-            if (confirm(`Are you sure you want to permanently delete ${med.name} from the cabinet?`)) {
-              onDelete(med.id)
-            }
-          }}
-          aria-label="Delete medicine"
-          type="button"
-        >
-          <Trash2 size={16} />
-        </button>
-
-        <button
-          className={`hold-btn ${isLogged ? 'logged' : 'pending'}`}
+          className={`hold-log-bar ${isLogged ? 'logged' : 'pending'}`}
           onMouseDown={startHold}
           onMouseUp={cancelHold}
           onMouseLeave={cancelHold}
@@ -141,14 +144,15 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete, onEdit }: MedC
           style={
             holding && !isLogged
               ? {
-                  background: `linear-gradient(to right, #16a34a ${progress}%, #ef4444 ${progress}%)`,
+                  background: `linear-gradient(to right, var(--logged-color) ${progress}%, var(--danger-color) ${progress}%)`,
                 }
               : undefined
           }
           aria-label={isLogged ? 'Logged' : 'Hold to log'}
           id={`log-btn-${med.id}-${slot}`}
+          type="button"
         >
-          {isLogged ? 'LOGGED' : 'HOLD TO LOG'}
+          {isLogged ? '✓ DOSE LOGGED' : 'HOLD TO LOG DOSE'}
         </button>
       </div>
     </div>

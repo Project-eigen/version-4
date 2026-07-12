@@ -197,7 +197,7 @@ export default function Scanner() {
 
       {/* Capture button pinned above bottom */}
       <div className={`scanner-capture-dock ${capturing ? 'processing-state' : ''}`}>
-        <div style={{ position: 'relative', display: 'inline-block' }}>
+        <div className="scanner-action-wrapper">
           <button
             className="capture-btn"
             onClick={handleCapture}
@@ -208,29 +208,20 @@ export default function Scanner() {
           >
             <Camera size={28} color="#0f172a" strokeWidth={2} />
           </button>
-          
+          <span className="scanner-action-label">Take Photo</span>
+        </div>
+
+        <div className="scanner-action-wrapper">
           <label
+            className="scanner-gallery-btn"
             style={{
-              position: 'absolute',
-              bottom: '-4px',
-              right: '-4px',
-              width: '28px',
-              height: '28px',
-              borderRadius: '50%',
-              backgroundColor: '#0d9488',
-              border: '2px solid #0f172a',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
               cursor: capturing ? 'not-allowed' : 'pointer',
               opacity: capturing ? 0.5 : 1,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-              zIndex: 10,
               pointerEvents: capturing ? 'none' : 'auto',
             }}
             title="Upload prescription photo"
           >
-            <Upload size={14} color="#ffffff" strokeWidth={2.5} />
+            <Upload size={28} color="var(--accent-teal)" strokeWidth={2} />
             <input
               type="file"
               accept="image/*"
@@ -239,6 +230,7 @@ export default function Scanner() {
               disabled={capturing}
             />
           </label>
+          <span className="scanner-action-label">Upload</span>
         </div>
       </div>
     </div>

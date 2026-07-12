@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Header from '../components/Header'
-import api from '../api/client'
+import api, { getImageUrl } from '../api/client'
 import type { TimeSlot, User } from '../types'
 import { Pencil, ImagePlus, Check, Trash2, Plus, X } from 'lucide-react'
 
@@ -315,7 +315,7 @@ export default function ScanApproval() {
         {state?.capturedImage && (
           <div className="scan-preview-header-card">
             <div className="preview-thumbnail-wrap" onClick={() => setLightboxOpen(true)}>
-              <img src={state.capturedImage} alt="Scanned Document" className="preview-thumbnail" />
+              <img src={getImageUrl(state.capturedImage)} alt="Scanned Document" className="preview-thumbnail" />
               <div className="preview-thumbnail-overlay">
                 <span>Tap to view scanned document reference</span>
               </div>
@@ -468,7 +468,7 @@ export default function ScanApproval() {
                   <div className="med-attachment-row" style={{ marginTop: 12 }}>
                     <div className="attachment-preview-box">
                       {med.packImage ? (
-                        <img src={med.packImage} alt="Pack preview" className="mini-preview-img" />
+                        <img src={getImageUrl(med.packImage)} alt="Pack preview" className="mini-preview-img" />
                       ) : (
                         <div className="placeholder-box">
                           <ImagePlus size={16} />
@@ -549,7 +549,7 @@ export default function ScanApproval() {
       {lightboxOpen && (
         <div className="lightbox-overlay" onClick={() => setLightboxOpen(false)}>
           <div className="lightbox-content" onClick={(e) => e.stopPropagation()}>
-            <img src={state?.capturedImage} alt="Fullscreen Scan Reference" className="lightbox-image" />
+            <img src={getImageUrl(state?.capturedImage)} alt="Fullscreen Scan Reference" className="lightbox-image" />
             <button
               className="lightbox-close"
               onClick={() => setLightboxOpen(false)}

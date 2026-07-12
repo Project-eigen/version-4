@@ -30,4 +30,13 @@ api.interceptors.response.use(
   }
 )
 
+export function getImageUrl(url: string | null | undefined): string {
+  if (!url) return ''
+  if (url.startsWith('/uploads/')) {
+    const baseUrl = import.meta.env.VITE_API_URL || ''
+    return `${baseUrl}${url}`
+  }
+  return url
+}
+
 export default api

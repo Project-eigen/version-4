@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import AppLayout from '../components/AppLayout'
-import api from '../api/client'
+import api, { getImageUrl } from '../api/client'
 import type { User, MedicineEntry, TimeSlot } from '../types'
 import { Pill, Archive, X, Trash2 } from 'lucide-react'
 
@@ -56,7 +56,7 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete }: MedCardProps
   const handleThumbClick = () => {
     const imgUrl = med.pack_image_url || med.scan_image_url
     if (imgUrl) {
-      onImageClick(imgUrl)
+      onImageClick(getImageUrl(imgUrl))
     }
   }
 
@@ -70,7 +70,7 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete }: MedCardProps
       >
         {med.pack_image_url || med.scan_image_url ? (
           <img
-            src={med.pack_image_url || med.scan_image_url || ''}
+            src={getImageUrl(med.pack_image_url || med.scan_image_url)}
             alt={med.name}
             width={56}
             height={56}
@@ -180,7 +180,7 @@ export default function Cabinet() {
       const [membersRes, inboxRes, settingsRes] = await Promise.allSettled([
         api.get('/family/members'),
         api.get('/family/inbox'),
-        api.get('/api/notifications/settings'),
+        api.get('/notifications/settings'),
       ])
       if (membersRes.status === 'fulfilled') setMembers(membersRes.value.data.members || [])
       if (inboxRes.status === 'fulfilled') setInboxCount(inboxRes.value.data.requests?.length ?? 0)
@@ -316,7 +316,7 @@ export default function Cabinet() {
       {activeLightboxImage && (
         <div className="lightbox-overlay" onClick={() => setActiveLightboxImage(null)}>
           <div className="lightbox-content" onClick={(e) => e.stopPropagation()}>
-            <img src={activeLightboxImage} alt="Fullscreen Medicine" className="lightbox-image" />
+            <img src={getImageUrl(activeLightboxImage)} alt="Fullscreen Medicine" className="lightbox-image" />
             <button
               className="lightbox-close"
               onClick={() => setActiveLightboxImage(null)}

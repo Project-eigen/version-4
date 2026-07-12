@@ -75,7 +75,7 @@ function AppRoutes() {
 
         // 2. Push any offline-triggered notification logs to the server
         if (logsList.length > 0) {
-          const syncResp = await api.post('/api/notifications/sync', { logs: logsList })
+          const syncResp = await api.post('/notifications/sync', { logs: logsList })
           if (syncResp.data.ok) {
             const idsToClear = logsList.map(l => l.id)
             await new Promise<void>((resolve, reject) => {
@@ -90,8 +90,8 @@ function AppRoutes() {
 
         // 3. Fetch latest active medicines and configurations
         const [settingsRes, medicineRes] = await Promise.all([
-          api.get('/api/notifications/settings'),
-          api.get('/api/medicine')
+          api.get('/notifications/settings'),
+          api.get('/medicine')
         ])
 
         const slots = ['morning', 'afternoon', 'evening', 'night'].filter(

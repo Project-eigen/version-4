@@ -817,7 +817,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 48px;
+  gap: 36px;
   padding: 20px 0 28px;
   background: rgba(6, 9, 15, 0.92);
   backdrop-filter: blur(16px);
@@ -839,22 +839,28 @@ body {
   color: var(--text-secondary);
 }
 
-.scanner-gallery-btn {
-  width: 76px;
-  height: 76px;
+.gallery-btn-small, .manual-btn-small {
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-  border: 4px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.2s ease;
-  box-shadow: 0 4px 28px rgba(0, 0, 0, 0.35);
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
-.scanner-gallery-btn:active {
-  transform: scale(0.88);
+.gallery-btn-small:hover, .manual-btn-small:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--accent-teal);
+  color: var(--text-primary);
+}
+
+.gallery-btn-small:active, .manual-btn-small:active {
+  transform: scale(0.92);
 }
 
 .scanner-analyzing-overlay {

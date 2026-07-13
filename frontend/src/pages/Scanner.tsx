@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Header from '../components/Header'
 import api from '../api/client'
-import { Zap, ZapOff, Camera, X, Upload } from 'lucide-react'
+import { Zap, ZapOff, Camera, X, Upload, Keyboard } from 'lucide-react'
 
 export default function Scanner() {
   const webcamRef = useRef<Webcam>(null)
@@ -197,6 +197,31 @@ export default function Scanner() {
 
       {/* Capture button pinned above bottom */}
       <div className={`scanner-capture-dock ${capturing ? 'processing-state' : ''}`}>
+        
+        {/* Left Side: Upload Gallery */}
+        <div className="scanner-action-wrapper">
+          <label
+            className="gallery-btn-small"
+            style={{
+              cursor: capturing ? 'not-allowed' : 'pointer',
+              opacity: capturing ? 0.5 : 1,
+              pointerEvents: capturing ? 'none' : 'auto',
+            }}
+            title="Upload prescription photo"
+          >
+            <Upload size={20} color="rgba(255,255,255,0.7)" strokeWidth={2} />
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleUpload}
+              style={{ display: 'none' }}
+              disabled={capturing}
+            />
+          </label>
+          <span className="scanner-action-label">Upload</span>
+        </div>
+
+        {/* Center: Primary Shutter Button */}
         <div className="scanner-action-wrapper">
           <button
             className="capture-btn"
@@ -211,27 +236,20 @@ export default function Scanner() {
           <span className="scanner-action-label">Take Photo</span>
         </div>
 
+        {/* Right Side: Type Manually Fallback */}
         <div className="scanner-action-wrapper">
-          <label
-            className="scanner-gallery-btn"
-            style={{
-              cursor: capturing ? 'not-allowed' : 'pointer',
-              opacity: capturing ? 0.5 : 1,
-              pointerEvents: capturing ? 'none' : 'auto',
-            }}
-            title="Upload prescription photo"
+          <button
+            className="manual-btn-small"
+            onClick={() => navigate('/scan/approve', { state: { targetMemberId: activeMemberId } })}
+            disabled={capturing}
+            title="Type details manually"
+            type="button"
           >
-            <Upload size={28} color="var(--accent-teal)" strokeWidth={2} />
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleUpload}
-              style={{ display: 'none' }}
-              disabled={capturing}
-            />
-          </label>
-          <span className="scanner-action-label">Upload</span>
+            <Keyboard size={20} color="rgba(255,255,255,0.7)" strokeWidth={2} />
+          </button>
+          <span className="scanner-action-label">Type Manual</span>
         </div>
+
       </div>
     </div>
   )

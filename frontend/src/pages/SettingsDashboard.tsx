@@ -319,7 +319,7 @@ export default function SettingsDashboard() {
         }
 
         const vapidRes = await api.get('/notifications/push/vapid-key')
-        const convertedKey = await urlBase64ToUint8Array(vapidRes.data.vapid_public_key)
+        const convertedKey = await urlBase64ToUint8Array(vapidRes.data.public_key)
 
         const subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,

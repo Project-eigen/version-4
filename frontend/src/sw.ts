@@ -125,8 +125,9 @@ function getDueMedicinesForSlot(medicines: any[], slot: string, dayOffset: numbe
       const todayDate = new Date()
       todayDate.setDate(todayDate.getDate() + dayOffset)
 
-      const diffTime = todayDate.getTime() - createdDate.getTime()
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
+      const d1 = new Date(createdDate.getFullYear(), createdDate.getMonth(), createdDate.getDate())
+      const d2 = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate())
+      const diffDays = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
       if (diffDays >= med.days) return false
     }
     return true

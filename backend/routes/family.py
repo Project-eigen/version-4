@@ -159,6 +159,9 @@ def leave_family():
     user = get_current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
+    from models import MedicineEntry
     user.family_id = None
+    # Detach all of this user's medicine entries from the old family
+    MedicineEntry.query.filter_by(user_id=user.id).update({"family_id": None})
     db.session.commit()
     return jsonify({"message": "Left family"})

@@ -285,8 +285,9 @@ def delete_medicine(entry_id):
         return jsonify({"error": "Medicine not found"}), 404
 
     # Security check: Can only delete if it belongs to you or your family
-    if entry.family_id and entry.family_id != user.family_id and entry.user_id != user.id:
-        return jsonify({"error": "Forbidden"}), 403
+    if entry.user_id != user.id:
+        if not (entry.family_id and entry.family_id == user.family_id):
+            return jsonify({"error": "Forbidden"}), 403
 
     # Delete all associated logs first
     MedicineLog.query.filter_by(entry_id=entry_id).delete()
@@ -307,9 +308,10 @@ def update_medicine(entry_id):
     if not entry:
         return jsonify({"error": "Medicine entry not found"}), 404
 
-    # Security: Ensure entry belongs to your family
-    if entry.family_id != user.family_id:
-        return jsonify({"error": "Forbidden"}), 403
+    # Security check: Can only update if it belongs to you or your family
+    if entry.user_id != user.id:
+        if not (entry.family_id and entry.family_id == user.family_id):
+            return jsonify({"error": "Forbidden"}), 403
 
     name = request.form.get("name")
     dosage = request.form.get("dosage")

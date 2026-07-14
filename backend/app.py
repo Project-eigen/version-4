@@ -98,6 +98,14 @@ def create_app():
             except Exception as exc:
                 app.logger.error(f"Error setting Telegram webhook on startup: {exc}")
 
+    @app.teardown_request
+    def handle_teardown(exception=None):
+        if exception:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+
     return app
 
 

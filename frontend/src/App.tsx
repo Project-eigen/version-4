@@ -88,23 +88,7 @@ function AppRoutes() {
           }
         }
 
-        // 3. Fetch latest active medicines and configurations
-        const [settingsRes, medicineRes] = await Promise.all([
-          api.get('/notifications/settings'),
-          api.get('/medicine/cabinet')
-        ])
-
-        const slots = settingsRes.data.slots || []
-        const times = settingsRes.data.times || {}
-        const medicines = medicineRes.data.medicines || []
-
-        // 4. Send the data to the Service Worker
-        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({
-            type: 'SYNC_SCHEDULES',
-            payload: { slots, times, medicines }
-          })
-        }
+        // 3. Cabinet double-fetching removed on mount (now synchronized in Cabinet.tsx)
       } catch (err) {
         console.error('[App] Notification sync failed:', err)
       }

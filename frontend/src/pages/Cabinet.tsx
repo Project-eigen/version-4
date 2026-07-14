@@ -34,7 +34,7 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete, onEdit }: MedC
     setProgress(0)
     let p = 0
     progressTimer.current = setInterval(() => {
-      p += 5
+      p += 10
       setProgress(p)
       if (p >= 100) {
         clearInterval(progressTimer.current!)
@@ -44,7 +44,7 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete, onEdit }: MedC
       onLog(med.id, slot)
       setHolding(false)
       setProgress(0)
-    }, 800)
+    }, 400)
   }
 
   const cancelHold = () => {
@@ -193,6 +193,20 @@ export default function Cabinet() {
       )
       setMedicines(res.data.medicines || [])
       hasFetchedOnce.current = true
+
+      // Sync active schedules to the Service Worker in the background
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+        api.get('/notifications/settings').then((settingsRes) => {
+          navigator.serviceWorker.controller?.postMessage({
+            type: 'SYNC_SCHEDULES',
+            payload: {
+              slots: settingsRes.data.slots || [],
+              times: settingsRes.data.times || {},
+              medicines: res.data.medicines || [],
+            }
+          })
+        }).catch(() => {})
+      }
     } catch {} finally {
       setLoading(false)
       setIsFetching(false)

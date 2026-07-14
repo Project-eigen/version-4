@@ -23,24 +23,20 @@ export default function FamilySettings() {
     setTimeout(() => setToast(null), 3000)
   }
 
-  const fetchFamily = useCallback(async () => {
+  const fetchFamilyData = useCallback(async () => {
     try {
-      const res = await api.get('/family/members')
-      setMembers(res.data.members || [])
-    } catch {}
-  }, [])
-
-  const fetchInbox = useCallback(async () => {
-    try {
-      const res = await api.get('/family/inbox')
-      setInboxCount(res.data.requests?.length ?? 0)
+      const [membersRes, inboxRes] = await Promise.all([
+        api.get('/family/members'),
+        api.get('/family/inbox')
+      ])
+      setMembers(membersRes.data.members || [])
+      setInboxCount(inboxRes.data.requests?.length ?? 0)
     } catch {}
   }, [])
 
   useEffect(() => {
-    fetchFamily()
-    fetchInbox()
-  }, [user])
+    fetchFamilyData()
+  }, [user, fetchFamilyData])
 
   const handleJoinFamily = async () => {
     if (!joinEmail.trim()) return
@@ -64,7 +60,7 @@ export default function FamilySettings() {
     try {
       await api.post('/family/create', { name: familyName.trim() })
       await refreshUser()
-      await fetchFamily()
+      await fetchFamilyData()
       setShowCreateModal(false)
       showToast('Family created!', 'success')
       setStatus('idle')
@@ -84,7 +80,7 @@ export default function FamilySettings() {
   return (
     <>
       <AppLayout
-        familyMembers={[]}
+        familyMembers={myMembers}
         activeMemberId={activeMemberId}
         onSelectMember={handleSelectMember}
         inboxCount={inboxCount}

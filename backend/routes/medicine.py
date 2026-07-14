@@ -250,15 +250,23 @@ def get_cabinet():
     today_start = local_start + timedelta(minutes=tz_offset)
     today_end = local_end + timedelta(minutes=tz_offset)
 
-    medicine_dicts = []
-    for med in medicines:
-        med_dict = med.to_dict()
+    # Fetch all logs for today for all the user's medicines in one single query!
+    medicine_ids = [m.id for m in medicines]
+    logs_by_med = {}
+    if medicine_ids:
         today_logs = MedicineLog.query.filter(
-            MedicineLog.entry_id == med.id,
+            MedicineLog.entry_id.in_(medicine_ids),
             MedicineLog.logged_at >= today_start,
             MedicineLog.logged_at <= today_end,
         ).all()
-        med_dict["today_logs"] = [l.time_slot for l in today_logs]
+        for log in today_logs:
+            logs_by_med.setdefault(log.entry_id, []).append(log.time_slot)
+
+    # Build medicine list using pre-fetched logs
+    medicine_dicts = []
+    for med in medicines:
+        med_dict = med.to_dict()
+        med_dict["today_logs"] = logs_by_med.get(med.id, [])
         medicine_dicts.append(med_dict)
 
     return jsonify({"medicines": medicine_dicts})

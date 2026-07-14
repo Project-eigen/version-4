@@ -82,7 +82,7 @@ export default function SettingsDashboard() {
   // Telegram states
   const [tgModal, setTgModal] = useState(false)
   const [tgCode, setTgCode] = useState('')
-  const [tgBotUsername] = useState('DawaiSathiBot')
+  const [tgBotUsername, setTgBotUsername] = useState('DawaiSathiBot')
   const [tgPolling, setTgPolling] = useState(false)
   const [tgCopied, setTgCopied] = useState(false)
   const [tgLinked, setTgLinked] = useState(false)
@@ -267,6 +267,7 @@ export default function SettingsDashboard() {
     try {
       const res = await api.get('/notifications/telegram/code')
       setTgCode(res.data.code)
+      if (res.data.bot_username) setTgBotUsername(res.data.bot_username)
       setTgLinked(false)
       setTgCopied(false)
       setTgModal(true)
@@ -326,7 +327,7 @@ export default function SettingsDashboard() {
           applicationServerKey: convertedKey as any,
         })
 
-        await api.post('/notifications/push/subscribe', subscription)
+        await api.post('/notifications/push/subscribe', { subscription: subscription.toJSON ? subscription.toJSON() : subscription })
         setCurrentEndpoint(subscription.endpoint)
         showToast('✓ Push alerts enabled on this device', 'success')
       }

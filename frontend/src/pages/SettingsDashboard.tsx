@@ -344,7 +344,8 @@ export default function SettingsDashboard() {
     if (testLoading) return
     setTestLoading(true)
     try {
-      await api.post('/notifications/push/test')
+      if (!currentEndpoint) { showToast('No push subscription found', 'error'); setTestLoading(false); return }
+      await api.post('/notifications/push/test', { endpoint: currentEndpoint })
       showToast('✓ Test alert sent!', 'success')
     } catch (err: any) {
       showToast(err.response?.data?.error || 'Failed to send test push', 'error')

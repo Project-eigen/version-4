@@ -372,7 +372,7 @@ export default function Cabinet() {
           med={editingMed}
           onClose={() => setEditingMed(null)}
           onSave={(updated) => {
-            setMedicines((prev) => prev.map((m) => (m.id === updated.id ? updated : m)))
+            setMedicines((prev) => prev.map((m) => (m.id === updated.id ? { ...updated, today_logs: m.today_logs } : m)))
             setEditingMed(null)
             showToast('✓ Medicine details updated')
           }}

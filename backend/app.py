@@ -91,26 +91,32 @@ def create_app():
     werkzeug_main = os.environ.get("WERKZEUG_RUN_MAIN")
     if not app.debug or werkzeug_main == "true" or os.environ.get("RENDER") == "true":
         # Internal scheduler disabled - triggered via external webhook /api/notifications/trigger-check
-        pass
 
-        # Automatically register Telegram webhook on startup
+        # Automatically register Telegram webhook on startup in a background thread
+        # so it does not block Gunicorn worker boot (blocking requests during boot = worker failure)
         token = app.config.get("TELEGRAM_BOT_TOKEN", "")
         base_url = app.config.get("TELEGRAM_WEBHOOK_URL", "").rstrip("/")
         if token and base_url:
-            import requests
-            webhook_url = f"{base_url}/api/telegram/webhook"
-            try:
-                resp = requests.post(
-                    f"https://api.telegram.org/bot{token}/setWebhook",
-                    json={"url": webhook_url},
-                    timeout=10,
-                )
-                if resp.ok:
-                    app.logger.info(f"Telegram webhook auto-set to: {webhook_url}")
-                else:
-                    app.logger.error(f"Failed to auto-set Telegram webhook: {resp.json()}")
-            except Exception as exc:
-                app.logger.error(f"Error setting Telegram webhook on startup: {exc}")
+            import threading
+            import requests as _requests
+
+            def _register_telegram_webhook():
+                webhook_url = f"{base_url}/api/telegram/webhook"
+                try:
+                    resp = _requests.post(
+                        f"https://api.telegram.org/bot{token}/setWebhook",
+                        json={"url": webhook_url},
+                        timeout=10,
+                    )
+                    if resp.ok:
+                        app.logger.info(f"Telegram webhook auto-set to: {webhook_url}")
+                    else:
+                        app.logger.warning(f"Telegram webhook not set: {resp.json()}")
+                except Exception as exc:
+                    app.logger.warning(f"Error setting Telegram webhook on startup: {exc}")
+
+            t = threading.Thread(target=_register_telegram_webhook, daemon=True)
+            t.start()
 
     @app.teardown_request
     def handle_teardown(exception=None):

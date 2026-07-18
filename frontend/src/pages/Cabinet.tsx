@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import AppLayout from '../components/AppLayout'
+import ConfirmDialog from '../components/ConfirmDialog'
+import SkeletonRow from '../components/SkeletonRow'
+import Toast from '../components/Toast'
+import EmptyState from '../components/EmptyState'
+import EditMedicineModal from '../components/EditMedicineModal'
 import api, { getImageUrl } from '../api/client'
 import type { User, MedicineEntry, TimeSlot } from '../types'
 import { Pill, Archive, X, Trash2, Pencil } from 'lucide-react'
@@ -148,7 +153,7 @@ function MedicineCard({ med, slot, onLog, onImageClick, onDelete, onEdit }: MedC
           id={`log-btn-${med.id}-${slot}`}
           type="button"
         >
-          {isLogged ? '✓ DOSE LOGGED' : 'HOLD TO LOG DOSE'}
+          {isLogged ? 'Dose logged' : 'Hold to log dose'}
         </button>
       </div>
     </div>
@@ -164,6 +169,8 @@ export default function Cabinet() {
   const [toast, setToast] = useState<string | null>(null)
   const [activeLightboxImage, setActiveLightboxImage] = useState<string | null>(null)
   const [editingMed, setEditingMed] = useState<MedicineEntry | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ entryId: number; slot: TimeSlot; name: string } | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
   const hasFetchedOnce = useRef(false)
   const [customTimes, setCustomTimes] = useState<Record<string, string>>({})
 
@@ -228,10 +235,11 @@ export default function Cabinet() {
   }, [user])
 
   useEffect(() => {
-    if (activeMemberId) {
-      fetchCabinet(activeMemberId)
+    const id = activeMemberId || user?.id
+    if (id) {
+      fetchCabinet(id)
     }
-  }, [activeMemberId, fetchCabinet])
+  }, [activeMemberId, user?.id, fetchCabinet])
 
   const handleLog = async (entryId: number, slot: TimeSlot) => {
     try {
@@ -249,20 +257,25 @@ export default function Cabinet() {
     }
   }
 
-  const handleDeleteMed = async (entryId: number, slot: TimeSlot) => {
+  const requestDeleteMed = (entryId: number, slot: TimeSlot) => {
     const med = medicines.find((m) => m.id === entryId)
     if (!med) return
+    setDeleteTarget({ entryId, slot, name: med.name })
+  }
+
+  const handleDeleteMed = async () => {
+    if (!deleteTarget) return
+    const { entryId, slot } = deleteTarget
+    const med = medicines.find((m) => m.id === entryId)
+    if (!med) return
+    setDeleteBusy(true)
     const updatedSchedule = med.schedule.filter((s) => s !== slot)
-    if (updatedSchedule.length === 0) {
-      try {
+    try {
+      if (updatedSchedule.length === 0) {
         await api.delete(`/medicine/delete/${entryId}`)
-        showToast('✓ Medicine deleted permanently')
+        showToast('Medicine deleted')
         setMedicines((prev) => prev.filter((m) => m.id !== entryId))
-      } catch {
-        showToast('Failed to delete medicine')
-      }
-    } else {
-      try {
+      } else {
         const formData = new FormData()
         formData.append('schedule', JSON.stringify(updatedSchedule))
         const res = await api.post(`/medicine/update/${entryId}`, formData, {
@@ -270,11 +283,14 @@ export default function Cabinet() {
         })
         if (res.data.medicine) {
           setMedicines((prev) => prev.map((m) => (m.id === entryId ? res.data.medicine : m)))
-          showToast(`✓ Removed ${slot} schedule`)
+          showToast(`Removed from ${slot}`)
         }
-      } catch {
-        showToast('Failed to remove schedule')
       }
+      setDeleteTarget(null)
+    } catch {
+      showToast(updatedSchedule.length === 0 ? 'Failed to delete medicine' : 'Failed to remove schedule')
+    } finally {
+      setDeleteBusy(false)
     }
   }
 
@@ -295,31 +311,17 @@ export default function Cabinet() {
         onSelectMember={handleSelectMember}
       >
         {loading ? (
-          <div style={{ padding: '12px 12px 0' }}>
-            {[1, 2, 3].map((n) => (
-              <div key={n} className="skeleton-card" style={{ marginBottom: 8 }}>
-                <div className="skeleton-thumb" />
-                <div style={{ flex: 1 }}>
-                  <div className="skeleton-line" style={{ width: '60%', marginBottom: 8 }} />
-                  <div className="skeleton-line" style={{ width: '40%', height: 10 }} />
-                </div>
-              </div>
-            ))}
-          </div>
+          <SkeletonRow count={3} />
         ) : !hasMedicines ? (
-          <div className="empty-state">
-            <div className="empty-icon">
-              <Archive size={48} color="var(--text-muted)" />
-            </div>
-            <h3 style={{ color: 'var(--text-primary)', fontWeight: 600 }}>Cabinet is empty</h3>
-            <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-              Tap the scan button to add medicines
-            </p>
-          </div>
+          <EmptyState
+            icon={<Archive size={48} color="var(--text-muted)" />}
+            title="Cabinet is empty"
+            description="Tap + to scan a prescription or add medicines"
+          />
         ) : (
           <div style={{ paddingBottom: 16, opacity: isFetching ? 0.65 : 1, transition: 'opacity 0.2s ease' }}>
             <div className="cabinet-hero">
-              <span className="cabinet-hero-title">Today's Schedule</span>
+              <span className="cabinet-hero-title">Today&apos;s schedule</span>
               <span className="cabinet-hero-date">
                 {new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
               </span>
@@ -346,7 +348,7 @@ export default function Cabinet() {
                 <div key={key}>
                   <div className={`time-band-header ${key}`}>
                     <span>
-                      {label.toUpperCase()} ({timeDisplay})
+                      {label} · {timeDisplay}
                     </span>
                   </div>
                   {meds.map((med) => (
@@ -356,7 +358,7 @@ export default function Cabinet() {
                       slot={key}
                       onLog={handleLog}
                       onImageClick={setActiveLightboxImage}
-                      onDelete={handleDeleteMed}
+                      onDelete={requestDeleteMed}
                       onEdit={setEditingMed}
                     />
                   ))}
@@ -366,6 +368,23 @@ export default function Cabinet() {
           </div>
         )}
       </AppLayout>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onClose={() => !deleteBusy && setDeleteTarget(null)}
+        onConfirm={handleDeleteMed}
+        title="Remove this medicine?"
+        description={
+          deleteTarget
+            ? `Remove “${deleteTarget.name}” from the ${deleteTarget.slot} schedule. If it has no other times, it will be deleted from the cabinet.`
+            : ''
+        }
+        confirmLabel="Remove"
+        cancelLabel="Keep"
+        destructive
+        busy={deleteBusy}
+        titleId="delete-med-title"
+      />
 
       {/* Image Lightbox Modal */}
       {activeLightboxImage && (
@@ -397,181 +416,7 @@ export default function Cabinet() {
         />
       )}
 
-      {toast && <div className="toast success">{toast}</div>}
+      {toast && <Toast message={toast} type="success" />}
     </>
-  )
-}
-
-interface EditMedicineModalProps {
-  med: MedicineEntry
-  onClose: () => void
-  onSave: (updated: MedicineEntry) => void
-}
-
-function EditMedicineModal({ med, onClose, onSave }: EditMedicineModalProps) {
-  const [name, setName] = useState(med.name)
-  const [dosage, setDosage] = useState(med.dosage || '')
-  const [schedule, setSchedule] = useState<TimeSlot[]>(med.schedule || [])
-  const [days, setDays] = useState(med.days != null ? String(med.days) : '')
-  const [instructions, setInstructions] = useState(med.instructions || '')
-  const [packImagePreview, setPackImagePreview] = useState<string | null>(med.pack_image_url)
-  const [packFile, setPackFile] = useState<File | null>(null)
-  const [saving, setSaving] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  const toggleSchedule = (slot: TimeSlot) => {
-    setSchedule((prev) =>
-      prev.includes(slot) ? prev.filter((s) => s !== slot) : [...prev, slot]
-    )
-  }
-
-  const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      setPackFile(file)
-      setPackImagePreview(URL.createObjectURL(file))
-    }
-  }
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!name.trim()) return
-
-    setSaving(true)
-    try {
-      const formData = new FormData()
-      formData.append('name', name)
-      formData.append('dosage', dosage)
-      formData.append('schedule', JSON.stringify(schedule))
-      formData.append('days', days)
-      formData.append('instructions', instructions)
-      if (packFile) {
-        formData.append('pack_image', packFile)
-      }
-
-      const res = await api.post(`/medicine/update/${med.id}`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-
-      if (res.data.medicine) {
-        onSave(res.data.medicine)
-      }
-    } catch (err) {
-      if (import.meta.env.DEV) console.error(err)
-      alert('Failed to update medicine parameters.')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="lightbox-overlay" style={{ zIndex: 600 }}>
-      <div className="edit-modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="edit-modal-header">
-          <h3>Edit Medicine</h3>
-          <button className="edit-modal-close" onClick={onClose} type="button">
-            <X size={20} />
-          </button>
-        </div>
-
-        <form onSubmit={handleSave} className="edit-modal-form">
-          <div className="field-row">
-            <div className="field-label">Medicine Name</div>
-            <input
-              className="field-input"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Paracetamol 650mg"
-              required
-            />
-          </div>
-
-          <div style={{ display: 'flex', gap: 12 }}>
-            <div className="field-row" style={{ flex: 1 }}>
-              <div className="field-label">Dosage</div>
-              <input
-                className="field-input"
-                value={dosage}
-                onChange={(e) => setDosage(e.target.value)}
-                placeholder="e.g. 1 tab"
-              />
-            </div>
-            <div className="field-row" style={{ width: '90px' }}>
-              <div className="field-label">Days</div>
-              <input
-                className="field-input"
-                type="number"
-                min="1"
-                value={days}
-                onChange={(e) => setDays(e.target.value)}
-                placeholder="e.g. 5"
-              />
-            </div>
-          </div>
-
-          <div className="field-row">
-            <div className="field-label">Schedule</div>
-            <div className="schedule-chips" style={{ marginTop: 4 }}>
-              {TIME_SLOTS.map(({ key, label }) => (
-                <button
-                  key={key}
-                  type="button"
-                  className={`schedule-chip ${key} ${schedule.includes(key) ? 'selected' : ''}`}
-                  onClick={() => toggleSchedule(key)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="field-row">
-            <div className="field-label">Instructions</div>
-            <input
-              className="field-input"
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              placeholder="e.g. After Food"
-            />
-          </div>
-
-          <div className="field-row">
-            <div className="field-label">Packaging Photo</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
-              <div className="edit-photo-preview">
-                {packImagePreview ? (
-                  <img src={getImageUrl(packImagePreview)} alt="Pack Preview" />
-                ) : (
-                  <Pill size={20} color="var(--text-muted)" />
-                )}
-              </div>
-              <button
-                type="button"
-                className="attach-photo-row-btn"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                Change Photo
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handlePhotoSelect}
-                style={{ display: 'none' }}
-              />
-            </div>
-          </div>
-
-          <div className="edit-modal-footer">
-            <button type="button" className="btn-secondary" onClick={onClose} disabled={saving}>
-              Cancel
-            </button>
-            <button type="submit" className="btn-primary" disabled={saving}>
-              {saving ? 'Saving...' : 'Save Changes'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
   )
 }

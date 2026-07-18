@@ -69,11 +69,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fetchUser()
   }, [])
 
+  // Stay in sync when axios clears token on 401
+  useEffect(() => {
+    const onLogout = () => {
+      setUser(null)
+      localStorage.removeItem('activeMemberId')
+    }
+    window.addEventListener('auth:logout', onLogout)
+    return () => window.removeEventListener('auth:logout', onLogout)
+  }, [])
+
   useEffect(() => {
     if (user?.id) {
       const saved = localStorage.getItem('activeMemberId')
       const n = Number(saved)
-      if (n > 0 && (n === user.id || user.family_id)) {
+      // Prefer saved member only if still this user or a family context exists
+      if (n > 0 && (n === user.id || !!user.family_id)) {
         _setActiveMemberId(n)
       } else {
         setActiveMemberId(user.id)
@@ -82,7 +93,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user])
 
   const logout = async () => {
-    try { await api.post('/auth/logout') } catch (e) { if (import.meta.env.DEV) console.warn('[Auth] Logout API call failed:', e) }
+    try {
+      await api.post('/auth/logout')
+    } catch (e) {
+      if (import.meta.env.DEV) console.warn('[Auth] Logout API call failed:', e)
+    }
     localStorage.removeItem('token')
     localStorage.removeItem('activeMemberId')
     setUser(null)

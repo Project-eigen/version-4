@@ -18,13 +18,15 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// On 401, clear token and reject.
-// AuthContext reads the token and shows the login page when user is null.
+// On 401, clear token and notify AuthContext so UI returns to login.
 api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem('token')
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('auth:logout'))
+      }
     }
     return Promise.reject(err)
   }

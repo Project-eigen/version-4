@@ -18,16 +18,7 @@ const ScanApproval  = lazy(() => import('./pages/ScanApproval'))
 // Matches the dark background so there's no flash of white (prevents CLS).
 function PageSuspense() {
   return (
-    <div
-      style={{
-        height: '100dvh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#0f172a',
-      }}
-      aria-label="Loading page"
-    >
+    <div className="loading-overlay" style={{ height: '100dvh' }} aria-busy="true" aria-label="Loading page">
       <div className="loading-spinner" />
     </div>
   )

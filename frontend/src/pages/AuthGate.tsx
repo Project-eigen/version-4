@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { Pill } from 'lucide-react'
 import api from '../api/client'
 import { useAuth } from '../context/AuthContext'
+import BrandLogo from '../components/BrandLogo'
 
 export default function AuthGate() {
   const { refreshUser } = useAuth()
   const [guestLoading, setGuestLoading] = useState(false)
+  const [guestError, setGuestError] = useState('')
 
   const handleLogin = () => {
     const apiBase = import.meta.env.VITE_API_URL || ''
@@ -14,13 +15,14 @@ export default function AuthGate() {
 
   const handleGuestLogin = async () => {
     setGuestLoading(true)
+    setGuestError('')
     try {
       const res = await api.post('/auth/guest-login')
       localStorage.setItem('token', res.data.token)
       await refreshUser()
     } catch (err) {
       if (import.meta.env.DEV) console.error('Guest login failed', err)
-      alert('Guest login failed. Please try again.')
+      setGuestError('Could not start a guest session. Please try again.')
     } finally {
       setGuestLoading(false)
     }
@@ -28,26 +30,23 @@ export default function AuthGate() {
 
   return (
     <div className="auth-gate">
-      {/* Logo */}
-      <div className="auth-logo">
-        <Pill size={32} color="white" />
+      <div className="auth-logo-wrap">
+        <BrandLogo variant="mark" size={88} className="auth-logo-img" alt="DawaiSathi" />
       </div>
 
-      {/* Brand */}
       <h1 className="auth-title">DawaiSathi</h1>
       <p className="auth-subtitle">
         Simple medicine tracking<br />for your family
       </p>
 
-      {/* Google Sign In */}
       <button
+        type="button"
         className="google-btn"
         onClick={handleLogin}
         id="google-signin-btn"
         aria-label="Continue with Google"
       >
-        {/* Google G SVG */}
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
           <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
           <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
@@ -56,17 +55,22 @@ export default function AuthGate() {
         Continue with Google
       </button>
 
-      {/* Guest Login */}
       <button
-        className="btn-ghost"
+        type="button"
+        className="btn-ghost auth-guest-btn"
         onClick={handleGuestLogin}
         disabled={guestLoading}
-        style={{ marginTop: 12, padding: 12, width: '100%', maxWidth: 280, color: 'var(--text-secondary)', fontWeight: 600 }}
         id="guest-login-btn"
-        type="button"
+        aria-describedby={guestError ? 'guest-login-error' : undefined}
       >
-        {guestLoading ? 'Entering sandbox...' : '⚡ Enter as Guest (Sandbox)'}
+        {guestLoading ? 'Starting…' : 'Try without account'}
       </button>
+
+      {guestError && (
+        <p id="guest-login-error" className="field-error-inline" role="alert">
+          {guestError}
+        </p>
+      )}
 
       <p className="auth-footer-text">
         Secure login powered by Google Accounts.<br />

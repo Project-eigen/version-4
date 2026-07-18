@@ -1,43 +1,30 @@
 import { useNavigate } from 'react-router-dom'
-import { Pill, Settings } from 'lucide-react'
+import { Settings } from 'lucide-react'
+import BrandLogo from './BrandLogo'
 
 export default function Header() {
   const navigate = useNavigate()
 
   return (
     <header className="app-header" role="banner">
-      {/* Brand - Clickable to navigate back to Cabinet */}
-      <div
-        style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
+      <button
+        type="button"
+        className="brand-btn"
         onClick={() => navigate('/cabinet')}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => e.key === 'Enter' && navigate('/cabinet')}
-        aria-label="DawaiSathi brand logo, click to view cabinet"
+        aria-label="DawaiSathi home — open cabinet"
       >
-        <div style={{
-          width: 32, height: 32, borderRadius: 9,
-          background: 'linear-gradient(135deg, var(--accent-teal), #3b82f6)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center'
-        }}>
-          <Pill size={16} color="white" />
-        </div>
+        <BrandLogo variant="mark" size={32} alt="" className="brand-mark-img" />
         <span className="brand-text">DawaiSathi</span>
-      </div>
+      </button>
 
-      {/* Header Actions - Settings Cog */}
       <div className="header-actions">
         <button
+          type="button"
           onClick={() => navigate('/settings')}
           className="icon-btn"
-          aria-label="Open settings dashboard"
-          style={{
-            width: 36, height: 36, display: 'flex', alignItems: 'center',
-            justifyContent: 'center', borderRadius: 8, background: 'transparent',
-            border: 'none', color: 'var(--text-secondary)', cursor: 'pointer'
-          }}
+          aria-label="Open settings"
         >
-          <Settings size={20} />
+          <Settings size={20} aria-hidden="true" />
         </button>
       </div>
     </header>

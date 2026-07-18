@@ -3,7 +3,8 @@ import Webcam from 'react-webcam'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import api from '../api/client'
-import { Zap, ZapOff, Camera, X, Upload, Keyboard } from 'lucide-react'
+import { Zap, ZapOff, Camera, X, Upload, Keyboard, Lightbulb } from 'lucide-react'
+import BrandLogo from '../components/BrandLogo'
 
 export default function Scanner() {
   const webcamRef = useRef<Webcam>(null)
@@ -17,6 +18,7 @@ export default function Scanner() {
   const [showTips, setShowTips] = useState(false)
   const [imageQuality, setImageQuality] = useState<'good' | 'poor' | null>(null)
   const [qualityMessage, setQualityMessage] = useState('')
+  const [flashHint, setFlashHint] = useState('')
 
   const analyzeImageQuality = useCallback((imageSrc: string) => {
     const img = new Image()
@@ -72,11 +74,15 @@ export default function Scanner() {
         const newFlashState = !flashActive
         await track.applyConstraints({ advanced: [{ torch: newFlashState }] } as any)
         setFlashActive(newFlashState)
+        setFlashHint('')
       } else {
-        alert('Flash/Torch is not supported on this device/camera.')
+        setFlashHint('Flash is not available on this camera')
+        setTimeout(() => setFlashHint(''), 2500)
       }
     } catch (err) {
       if (import.meta.env.DEV) console.error('Failed to toggle flash', err)
+      setFlashHint('Could not toggle flash')
+      setTimeout(() => setFlashHint(''), 2500)
     }
   }
 
@@ -155,18 +161,22 @@ export default function Scanner() {
       {/* Dark header row */}
       <div className="scanner-top-bar">
         <div className="scanner-brand">
-          <div className="scanner-brand-dot" />
-          <span>DawaiSathi Scanner</span>
+          <BrandLogo variant="mark" size={28} alt="" className="scanner-brand-logo" />
+          <span>Scanner</span>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div className="scanner-top-actions">
           <button
             className={`flash-toggle-btn ${flashActive ? 'active' : ''}`}
             onClick={toggleFlash}
             type="button"
-            aria-label="Toggle Flash"
+            aria-label="Toggle flash"
             id="toggle-flash-btn"
           >
-            {flashActive ? <Zap size={18} color="var(--accent-teal)" /> : <ZapOff size={18} color="rgba(255,255,255,0.6)" />}
+            {flashActive ? (
+              <Zap size={18} color="var(--accent-teal)" aria-hidden="true" />
+            ) : (
+              <ZapOff size={18} color="rgba(255,255,255,0.6)" aria-hidden="true" />
+            )}
           </button>
           <button
             className="scanner-close-btn"
@@ -174,7 +184,7 @@ export default function Scanner() {
             type="button"
             aria-label="Close scanner"
           >
-            <X size={18} color="rgba(255,255,255,0.6)" />
+            <X size={18} color="rgba(255,255,255,0.6)" aria-hidden="true" />
           </button>
         </div>
       </div>
@@ -235,11 +245,12 @@ export default function Scanner() {
             {/* Viewfinder overlay */}
             {!capturedPreview && (
               <div className="scanner-viewfinder">
-                <div className="scanner-scan-line" />
-                <div className="scanner-corner tl" />
-                <div className="scanner-corner tr" />
-                <div className="scanner-corner bl" />
-                <div className="scanner-corner br" />
+                {/* Animate only while analyzing — not an idle infinite loop */}
+                <div className={`scanner-scan-line ${capturing ? 'is-active' : ''}`} aria-hidden="true" />
+                <div className="scanner-corner tl" aria-hidden="true" />
+                <div className="scanner-corner tr" aria-hidden="true" />
+                <div className="scanner-corner bl" aria-hidden="true" />
+                <div className="scanner-corner br" aria-hidden="true" />
               </div>
             )}
 
@@ -252,15 +263,12 @@ export default function Scanner() {
             >
               <div className="scanner-hint">
                 {capturing ? (
-                  <span className="hint-text">⏳ Analyzing with AI…</span>
+                  <span className="hint-text">Reading prescription…</span>
                 ) : (
-                  <>
-                    <span className="hint-icon">📋</span>
-                    <div className="hint-text-group">
-                      <span className="hint-text">Place prescription inside frame</span>
-                      <span className="hint-subtext">Ensure good lighting and clear text</span>
-                    </div>
-                  </>
+                  <div className="hint-text-group">
+                    <span className="hint-text">Place prescription inside the frame</span>
+                    <span className="hint-subtext">Good lighting and clear text work best</span>
+                  </div>
                 )}
               </div>
             </div>
@@ -275,7 +283,7 @@ export default function Scanner() {
                   aria-expanded={showTips}
                   type="button"
                 >
-                  <span className="tips-icon">💡</span>
+                  <Lightbulb size={14} className="tips-icon" aria-hidden="true" />
                   <span className="tips-label">Tips for better scans</span>
                 </button>
                 {showTips && (
@@ -299,13 +307,9 @@ export default function Scanner() {
         )}
       </div>
 
-      {errorMsg && (
-        <div style={{
-          padding: '10px 16px', margin: '8px 16px', borderRadius: 10,
-          background: 'rgba(239, 68, 68, 0.15)', color: '#f87171',
-          fontSize: '0.82rem', textAlign: 'center'
-        }}>
-          {errorMsg}
+      {(errorMsg || flashHint) && (
+        <div className="scanner-inline-error" role="status">
+          {errorMsg || flashHint}
         </div>
       )}
 

@@ -20,7 +20,7 @@ export interface JoinRequest {
   requester: User
   family_id: number
   status: 'pending' | 'accepted' | 'rejected'
-  created_at: string
+  created_at: string | null
 }
 
 export interface MedicineEntry {

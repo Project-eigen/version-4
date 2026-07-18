@@ -288,16 +288,15 @@ export default function ScanApproval() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
+    <div className="scan-approve-shell">
       <Header />
 
-      {/* Target Family Member Selector */}
       {members.length > 1 && (
-        <div style={{ padding: '8px 16px 12px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-subtle)' }}>
-          <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 8 }}>
-            Add these to the cabinet of:
+        <div className="scan-target-bar">
+          <div className="scan-target-label">
+            Add these to the cabinet of
           </div>
-          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
+          <div className="scan-target-pills">
             {members.map((member) => (
               <button
                 key={member.id}
@@ -319,36 +318,34 @@ export default function ScanApproval() {
         </div>
       )}
 
-      <div className="page-content" style={{ paddingBottom: 80 }}>
-        {/* Scanned Image Preview Section */}
+      <div className="scan-approve-body">
         {state?.capturedImage && (
           <div className="scan-preview-header-card">
             <div className="preview-thumbnail-wrap" onClick={() => setLightboxOpen(true)}>
-              <img src={getImageUrl(state.capturedImage)} alt="Scanned Document" className="preview-thumbnail" />
+              <img src={getImageUrl(state.capturedImage)} alt="Scanned document" className="preview-thumbnail" />
               <div className="preview-thumbnail-overlay">
-                <span>Tap to view scanned document reference</span>
+                <span>Tap to view scanned document</span>
               </div>
             </div>
           </div>
         )}
 
-        <div className="extracted-section" style={{ padding: '16px 16px 8px' }}>
+        <div className="extracted-section extracted-section-pad">
           <div className="extracted-header">
             <span className="extracted-label">
-              <Check size={12} style={{ display: 'inline', marginRight: 4 }} />
-              Review &amp; Edit Scanned List
+              <Check size={12} aria-hidden="true" style={{ display: 'inline', marginRight: 4 }} />
+              Review scanned list
             </span>
-            <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+            <span className="section-label tabular-nums">
               {medicines.length} found
             </span>
           </div>
 
-          {/* Unparsed Text Helper */}
           {unparsedLines.length > 0 && (
             <div className="unparsed-alert-box">
-              <span className="unparsed-alert-title">🔍 Unparsed Text Detected</span>
+              <span className="unparsed-alert-title">Unparsed text detected</span>
               <p className="unparsed-alert-desc">
-                We found lines we couldn't parse cleanly. Tap any line below to quickly add it as a card:
+                Some lines could not be parsed cleanly. Tap a line to add it as a medicine card:
               </p>
               <div className="unparsed-chips">
                 {unparsedLines.map((line, index) => (
@@ -371,11 +368,11 @@ export default function ScanApproval() {
               <div className="med-approval-card" key={med.id}>
                 {/* Card Header */}
                 <div className="med-card-header">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div className="med-card-header-left">
                     <span className="med-card-index">Medicine #{idx + 1}</span>
                     {med.confidence && (
                       <span className={`confidence-badge ${med.confidence}`}>
-                        {med.confidence === 'high' ? '🟢 Certain' : med.confidence === 'medium' ? '🟡 Review' : '🔴 Ambiguous'}
+                        {med.confidence === 'high' ? 'Certain' : med.confidence === 'medium' ? 'Review' : 'Ambiguous'}
                       </span>
                     )}
                   </div>
@@ -392,37 +389,36 @@ export default function ScanApproval() {
                 {/* Grid Inputs */}
                 <div className="med-card-body">
                   <div className="approval-fields-grid">
-                    <div className="field-row" style={{ flex: 1 }}>
-                      <div className="field-label">Name</div>
+                    <div className="field-row field-grow">
+                      <label className="field-label" htmlFor={`med-name-${idx}`}>Name</label>
                       <div className="field-wrapper">
                         <input
+                          id={`med-name-${idx}`}
                           className="field-input"
                           value={med.name}
                           onChange={(e) => updateName(idx, e.target.value)}
                           placeholder="Medicine name"
-                          aria-label={`Medicine #${idx + 1} Name`}
                         />
-                        <Pencil size={12} className="field-edit-icon" />
+                        <Pencil size={12} className="field-edit-icon" aria-hidden="true" />
                       </div>
                     </div>
 
-                    <div className="field-row" style={{ width: '100px' }}>
-                      <div className="field-label">Dosage</div>
+                    <div className="field-row field-w-dosage">
+                      <label className="field-label" htmlFor={`med-dosage-${idx}`}>Dosage</label>
                       <div className="field-wrapper">
                         <input
+                          id={`med-dosage-${idx}`}
                           className="field-input"
                           value={med.dosage}
                           onChange={(e) => updateDosage(idx, e.target.value)}
                           placeholder="e.g. 500mg"
-                          aria-label={`Medicine #${idx + 1} Dosage`}
                         />
-                        <Pencil size={12} className="field-edit-icon" />
+                        <Pencil size={12} className="field-edit-icon" aria-hidden="true" />
                       </div>
                     </div>
                   </div>
 
-                  {/* Schedule */}
-                  <div className="field-row" style={{ marginTop: 8 }}>
+                  <div className="field-row field-mt">
                     <div className="field-label">Schedule</div>
                     <div className="schedule-chips">
                       {SCHEDULE_OPTIONS.map(({ key, label }) => (

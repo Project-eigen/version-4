@@ -30,52 +30,56 @@ def create_app():
     app.register_blueprint(medicine_bp)
     app.register_blueprint(notifications_bp)
 
-    # Create DB tables & uploads folder
+    # Create DB tables & uploads folder.
+    # Keep startup resilient: a transient DB blip must not kill every Gunicorn worker.
     with app.app_context():
-        db.create_all()
-        
-        # Self-healing check: Dynamically add timezone_name column to users table if missing
-        try:
-            from sqlalchemy import inspect
-            inspector = inspect(db.engine)
-            columns = [col["name"] for col in inspector.get_columns("users")]
-            if "timezone_name" not in columns:
-                db.session.execute(db.text("ALTER TABLE users ADD COLUMN timezone_name VARCHAR(64);"))
-                db.session.commit()
-                app.logger.info("Successfully added missing timezone_name column to users table.")
-        except Exception as e:
-            db.session.rollback()
-            app.logger.error(f"Error checking/adding timezone_name column: {e}")
-
         os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+        try:
+            db.create_all()
 
-        # Migrate old push subscriptions to the new table (if not already there)
-        from models import User, PushSubscription
-        legacy_users = User.query.filter(
-            User.push_subscription_json.isnot(None)
-        ).all()
-        migrated = 0
-        for user in legacy_users:
-            if not user.push_subscription_json:
-                continue
-            endpoint = ""
+            # Self-healing check: Dynamically add timezone_name column to users table if missing
             try:
-                sub_data = json.loads(user.push_subscription_json)
-                endpoint = sub_data.get("endpoint", "")
-            except Exception:
-                pass
-            if not endpoint:
-                continue
-            already = PushSubscription.query.filter_by(endpoint=endpoint).first()
-            if not already:
-                db.session.add(PushSubscription(
-                    user_id=user.id,
-                    endpoint=endpoint,
-                    subscription_json=user.push_subscription_json,
-                ))
-                migrated += 1
-        if migrated:
-            db.session.commit()
+                from sqlalchemy import inspect
+                inspector = inspect(db.engine)
+                columns = [col["name"] for col in inspector.get_columns("users")]
+                if "timezone_name" not in columns:
+                    db.session.execute(db.text("ALTER TABLE users ADD COLUMN timezone_name VARCHAR(64);"))
+                    db.session.commit()
+                    app.logger.info("Successfully added missing timezone_name column to users table.")
+            except Exception as e:
+                db.session.rollback()
+                app.logger.error(f"Error checking/adding timezone_name column: {e}")
+
+            # Migrate old push subscriptions to the new table (if not already there)
+            from models import User, PushSubscription
+            legacy_users = User.query.filter(
+                User.push_subscription_json.isnot(None)
+            ).all()
+            migrated = 0
+            for user in legacy_users:
+                if not user.push_subscription_json:
+                    continue
+                endpoint = ""
+                try:
+                    sub_data = json.loads(user.push_subscription_json)
+                    endpoint = sub_data.get("endpoint", "")
+                except Exception:
+                    pass
+                if not endpoint:
+                    continue
+                already = PushSubscription.query.filter_by(endpoint=endpoint).first()
+                if not already:
+                    db.session.add(PushSubscription(
+                        user_id=user.id,
+                        endpoint=endpoint,
+                        subscription_json=user.push_subscription_json,
+                    ))
+                    migrated += 1
+            if migrated:
+                db.session.commit()
+        except Exception as e:
+            # Log and continue so / health checks can still answer while DB recovers.
+            app.logger.exception(f"Database bootstrap failed (app will still start): {e}")
 
     # Health check route for UptimeRobot
     @app.route("/")

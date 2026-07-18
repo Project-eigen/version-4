@@ -5,14 +5,47 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, ".env"))
 
 
+def _database_uri() -> str:
+    """Normalize DATABASE_URL for SQLAlchemy / Supabase pooler / Render."""
+    uri = os.environ.get("DATABASE_URL", "sqlite:///dawaisathi.db")
+    # Render/Heroku sometimes hand out postgres:// which SQLAlchemy rejects
+    if uri.startswith("postgres://"):
+        uri = "postgresql://" + uri[len("postgres://") :]
+    return uri
+
+
+def _engine_options(uri: str) -> dict:
+    """Pool settings that work on Neon, Supabase direct, and Supabase PgBouncer."""
+    opts: dict = {
+        "pool_pre_ping": True,
+        "pool_recycle": 280,
+        "pool_size": 5,
+        "max_overflow": 5,
+    }
+    # Transaction-mode pooler (port 6543) does not support prepared statements
+    # or long-lived server-side sessions well; keep connections short-lived.
+    if ":6543" in uri or "pooler.supabase.com" in uri:
+        opts["pool_size"] = 3
+        opts["max_overflow"] = 2
+        opts["connect_args"] = {
+            "sslmode": "require",
+            "connect_timeout": 15,
+            # Avoid channel_binding issues on some managed Postgres hosts
+            "options": "-c statement_timeout=60000",
+        }
+    elif uri.startswith("postgresql"):
+        opts["connect_args"] = {
+            "sslmode": "require",
+            "connect_timeout": 15,
+        }
+    return opts
+
+
 class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-this")
-    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", "sqlite:///dawaisathi.db")
+    SQLALCHEMY_DATABASE_URI = _database_uri()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {
-        "pool_pre_ping": True,
-        "pool_recycle": 300,
-    }
+    SQLALCHEMY_ENGINE_OPTIONS = _engine_options(SQLALCHEMY_DATABASE_URI)
 
     GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
     GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")

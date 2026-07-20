@@ -625,7 +625,7 @@ def check_interactions():
             member = User.query.filter_by(id=target_user_id, family_id=user.family_id).first()
             if not member:
                 return jsonify({"error": "Member not found in family"}), 404
-        entries = MedicineEntry.query.filter_by(user_id=target_user_id, is_archived=False).all()
+        entries = MedicineEntry.query.filter_by(user_id=target_user_id).all()
         medicines = [{"name": e.name, "dosage": e.dosage or "", "instructions": e.instructions or ""} for e in entries]
 
     if not isinstance(medicines, list) or len(medicines) == 0:

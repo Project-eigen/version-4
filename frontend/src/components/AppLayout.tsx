@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { Users, ScanLine, Archive, Plus, Pencil } from 'lucide-react'
@@ -6,6 +6,8 @@ import Header from './Header'
 import FamilyPills from './FamilyPills'
 import Modal from './Modal'
 import type { User } from '../types'
+import api from '../api/client'
+
 
 interface LayoutProps {
   children: React.ReactNode
@@ -26,6 +28,28 @@ export default function AppLayout({
   const location = useLocation()
   const { user } = useAuth()
   const [showAddMenu, setShowAddMenu] = useState(false)
+  const [pendingCount, setPendingCount] = useState(0)
+
+  useEffect(() => {
+    if (!user?.family_id) {
+      setPendingCount(0)
+      return
+    }
+
+    const checkPending = async () => {
+      try {
+        const res = await api.get('/family/inbox')
+        setPendingCount(res.data.requests?.length || 0)
+      } catch {
+        // fail silently
+      }
+    }
+
+    checkPending()
+    // Poll every 30 seconds for pending family requests
+    const interval = setInterval(checkPending, 30000)
+    return () => clearInterval(interval)
+  }, [user?.family_id])
 
   const currentTab: NavTab =
     location.pathname.startsWith('/cabinet') ? 'cabinet'
@@ -37,7 +61,7 @@ export default function AppLayout({
   return (
     <>
       <Header />
-      {currentTab === 'cabinet' && (
+      {currentTab === 'cabinet' && familyMembers.length > 1 && (
         <FamilyPills
           members={familyMembers}
           activeMemberId={activeMemberId}
@@ -60,7 +84,33 @@ export default function AppLayout({
           aria-label="Family"
           aria-current={currentTab === 'family' ? 'page' : undefined}
         >
-          <Users size={20} aria-hidden="true" />
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
+            <Users size={20} aria-hidden="true" />
+            {pendingCount > 0 && (
+              <span
+                style={{
+                  position: 'absolute',
+                  top: -6,
+                  right: -8,
+                  backgroundColor: '#ef4444',
+                  color: 'white',
+                  borderRadius: '50%',
+                  fontSize: '0.62rem',
+                  fontWeight: 'bold',
+                  padding: '2px 5px',
+                  lineHeight: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '1.5px solid var(--bg-card, #ffffff)',
+                  minWidth: 14,
+                  minHeight: 14,
+                }}
+              >
+                {pendingCount}
+              </span>
+            )}
+          </div>
           <span>Family</span>
         </button>
 

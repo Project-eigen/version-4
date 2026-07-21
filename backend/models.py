@@ -72,7 +72,7 @@ class User(db.Model):
             "avatar_url": self.avatar_url,
             "family_id": self.family_id,
             "telegram_linked": self.telegram_chat_id is not None,
-            "push_enabled": self.push_subscriptions.count() > 0,
+            "push_enabled": self.push_subscription_json is not None,
             "timezone_name": self.timezone_name,
         }
 

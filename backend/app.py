@@ -6,7 +6,7 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
 from config import Config
-from extensions import db
+from extensions import db, limiter
 from routes.auth import auth_bp
 from routes.family import family_bp
 from routes.medicine import medicine_bp
@@ -18,6 +18,8 @@ def create_app():
 
     # Initialize extensions
     db.init_app(app)
+    limiter.init_app(app)
+
     CORS(
         app,
         origins=[app.config["FRONTEND_URL"]],

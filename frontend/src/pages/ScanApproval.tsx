@@ -54,6 +54,14 @@ export default function ScanApproval() {
     targetMemberId?: number
   }
 
+  // Guard: if someone navigates directly to /scan-approval (refresh, paste URL,
+  // notification deep-link) location.state will be null and the page would crash
+  // trying to render undefined scan data. Redirect them back to /scan instead.
+  if (!state?.scanData) {
+    navigate('/scan', { replace: true })
+    return null
+  }
+
   const [medicines, setMedicines] = useState<EditableMedicine[]>(() => {
     const extractedList = state?.scanData?.extracted?.medicines || []
     const singleExtracted = state?.scanData?.extracted
@@ -86,7 +94,7 @@ export default function ScanApproval() {
       ]
     }
 
-    // Default fallback
+    // Default fallback: one blank card
     return [
       {
         id: `blank-${Date.now()}`,
@@ -271,11 +279,11 @@ export default function ScanApproval() {
     }
 
     setLoading(true)
+    // Phase 1: upload any custom pack images in parallel
+    setCurrentUploadIdx(null) // null = "Uploading images…" phase
     try {
-      // 1. Upload custom pack images in parallel if they exist
       const medicinesWithUrls = await Promise.all(
-        medicines.map(async (med, idx) => {
-          setCurrentUploadIdx(idx)
+        medicines.map(async (med) => {
           let pack_image_url = med.packImage
           if (med.packFile) {
             const formData = new FormData()
@@ -296,9 +304,8 @@ export default function ScanApproval() {
         })
       )
 
-      setCurrentUploadIdx(null)
-
-      // 2. Save all medicines in a single batch call
+      // Phase 2: save all medicines in a single batch call
+      setCurrentUploadIdx(-1) // -1 = "Saving to cabinet…" phase
       await api.post('/medicine/batch-add', {
         medicines: medicinesWithUrls,
         scan_image_url: state?.scanData?.scan_image_url || '',
@@ -630,9 +637,9 @@ export default function ScanApproval() {
         >
           <div className="loading-spinner" />
           <span style={{ fontWeight: 600, color: 'white', marginTop: 16 }}>
-            {currentUploadIdx !== null
-              ? `Saving medicine ${currentUploadIdx + 1} of ${medicines.length}…`
-              : 'Saving medicines…'}
+            {currentUploadIdx === -1
+              ? 'Saving to cabinet…'
+              : 'Uploading images…'}
           </span>
         </div>
       )}

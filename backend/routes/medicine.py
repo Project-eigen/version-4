@@ -269,49 +269,99 @@ def get_cabinet():
             MedicineLog.logged_at <= today_end,
         ).all()
         for log in today_logs:
-            logs_by_med.setdefault(log.entry_id, []).append(log.time_slot)
+            # Deduplicate at read time — guards against any pre-existing
+            # duplicate rows created before the idempotency check was added.
+            bucket = logs_by_med.setdefault(log.entry_id, [])
+            if log.time_slot not in bucket:
+                bucket.append(log.time_slot)
 
-    # Build medicine list using pre-fetched logs
-    medicine_dicts = []
+    # Build medicine lists using pre-fetched logs and classifying by expiry
+    active_medicine_dicts = []
+    expired_medicine_dicts = []
     for med in medicines:
         med_dict = med.to_dict()
         med_dict["today_logs"] = logs_by_med.get(med.id, [])
-        medicine_dicts.append(med_dict)
+        
+        if med.days is not None:
+            local_created_at = med.created_at - timedelta(minutes=tz_offset)
+            local_created_date = local_created_at.date()
+            expiry_date = local_created_date + timedelta(days=med.days)
+            if local_date_obj >= expiry_date:
+                expired_medicine_dicts.append(med_dict)
+                continue
+                
+        active_medicine_dicts.append(med_dict)
 
-    return jsonify({"medicines": medicine_dicts})
+    return jsonify({
+        "medicines": active_medicine_dicts,
+        "expired_medicines": expired_medicine_dicts,
+    })
 
 
 @medicine_bp.route("/api/medicine/log", methods=["POST"])
 def log_medicine():
-    """Log a medicine dose as taken."""
+    """Log a medicine dose as taken.
+
+    Idempotent: if the same (entry, user, slot) was already logged today,
+    returns 200 with the existing record instead of creating a duplicate.
+    This makes repeated calls from the frontend (e.g. on retry after network
+    error, or multi-press before the optimistic UI kicks in) completely safe.
+    """
     user = get_current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
 
-    data = request.get_json()
+    data = request.get_json() or {}
     entry_id = data.get("entry_id")
     time_slot = data.get("time_slot")
 
     if not entry_id or not time_slot:
         return jsonify({"error": "entry_id and time_slot are required"}), 400
 
+    # Validate slot name up-front so we never write garbage to the DB
+    valid_slots = {"morning", "afternoon", "evening", "night"}
+    if time_slot not in valid_slots:
+        return jsonify({
+            "error": f"Invalid time_slot '{time_slot}'. Must be one of: {', '.join(sorted(valid_slots))}",
+            "code": "INVALID_SLOT",
+        }), 400
+
     entry = MedicineEntry.query.get(entry_id)
     if not entry:
         return jsonify({"error": "Medicine not found"}), 404
 
-    # Can log for yourself or family members
+    # Can log for yourself or any member of your family group
     if entry.family_id and entry.family_id != user.family_id and entry.user_id != user.id:
         return jsonify({"error": "Forbidden"}), 403
 
-    log = MedicineLog(
+    # ── Idempotency check ────────────────────────────────────────────────────
+    # One log per (entry, user, slot) per calendar day in the user's UTC time.
+    # If already logged, return the existing record — do NOT insert a duplicate.
+    today = date.today()
+    existing = MedicineLog.query.filter(
+        MedicineLog.entry_id == entry_id,
+        MedicineLog.logged_by_user_id == user.id,
+        MedicineLog.time_slot == time_slot,
+        db.func.date(MedicineLog.logged_at) == today,
+    ).first()
+
+    if existing:
+        current_app.logger.debug(
+            "Duplicate log prevented for entry=%s slot=%s user=%s",
+            entry_id, time_slot, user.id,
+        )
+        return jsonify({"message": "Already logged", "log": existing.to_dict()}), 200
+    # ─────────────────────────────────────────────────────────────────────────
+
+    log_entry = MedicineLog(
         entry_id=entry_id,
         logged_by_user_id=user.id,
         time_slot=time_slot,
     )
-    db.session.add(log)
+    db.session.add(log_entry)
     safe_commit()
 
-    return jsonify({"message": "Dose logged", "log": log.to_dict()}), 201
+    return jsonify({"message": "Dose logged", "log": log_entry.to_dict()}), 201
 
 
 @medicine_bp.route("/api/medicine/delete/<int:entry_id>", methods=["DELETE"])

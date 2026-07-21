@@ -9,7 +9,7 @@ import EditMedicineModal from '../components/EditMedicineModal'
 import InteractionCheckerCard from '../components/InteractionCheckerCard'
 import api, { getImageUrl } from '../api/client'
 import type { User, MedicineEntry, TimeSlot } from '../types'
-import { Pill, Archive, X, Trash2, Pencil, Clock } from 'lucide-react'
+import { Pill, Archive, X, Trash2, Pencil, Clock, Sun, Sunrise, Sunset, Moon } from 'lucide-react'
 
 const TIME_SLOTS: { key: TimeSlot; label: string; time: string }[] = [
   { key: 'morning', label: 'Morning', time: '8:00 AM' },
@@ -96,6 +96,11 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
   const [holding, setHolding] = useState(false)
   const [progress, setProgress] = useState(0)
   const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+  
+  // Detect if user is on a touch device
+  const [isTouchDevice] = useState(() => {
+    return 'ontouchstart' in window || navigator.maxTouchPoints > 0
+  })
 
   // Re-evaluate the logging window every 30 seconds so the card updates
   // automatically when the window opens (e.g., at 12:00 for the 1pm dose)
@@ -152,7 +157,7 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
       </>
     )
   } else {
-    barLabel = 'Hold to log dose'
+    barLabel = isTouchDevice ? 'Hold to log dose' : 'Click to log dose'
   }
 
   return (
@@ -235,11 +240,12 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
         <motion.button
           whileTap={isDormant || loggingState === 'logged' ? undefined : { scale: 0.97 }}
           className={`hold-log-bar ${loggingState}`}
-          onMouseDown={isDormant || loggingState === 'logged' ? undefined : startHold}
-          onMouseUp={isDormant || loggingState === 'logged' ? undefined : cancelHold}
-          onMouseLeave={isDormant || loggingState === 'logged' ? undefined : cancelHold}
-          onTouchStart={isDormant || loggingState === 'logged' ? undefined : startHold}
-          onTouchEnd={isDormant || loggingState === 'logged' ? undefined : cancelHold}
+          onMouseDown={isDormant || loggingState === 'logged' || !isTouchDevice ? undefined : startHold}
+          onMouseUp={isDormant || loggingState === 'logged' || !isTouchDevice ? undefined : cancelHold}
+          onMouseLeave={isDormant || loggingState === 'logged' || !isTouchDevice ? undefined : cancelHold}
+          onTouchStart={isDormant || loggingState === 'logged' || !isTouchDevice ? undefined : startHold}
+          onTouchEnd={isDormant || loggingState === 'logged' || !isTouchDevice ? undefined : cancelHold}
+          onClick={isDormant || loggingState === 'logged' || isTouchDevice ? undefined : () => onLog(med.id, slot)}
           style={
             holding && loggingState === 'active'
               ? {
@@ -254,7 +260,9 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
               ? 'Dose already logged'
               : loggingState === 'dormant'
               ? `Not available yet. Opens at ${formatSlotTime(slotTime)}`
-              : 'Hold to log dose'
+              : isTouchDevice
+              ? 'Hold to log dose'
+              : 'Click to log dose'
           }
           id={`log-btn-${med.id}-${slot}`}
           type="button"
@@ -270,6 +278,8 @@ export default function Cabinet() {
   const { user, activeMemberId, setActiveMemberId } = useAuth()
   const [members, setMembers] = useState<User[]>([])
   const [medicines, setMedicines] = useState<MedicineEntry[]>([])
+  const [expiredMedicines, setExpiredMedicines] = useState<MedicineEntry[]>([])
+  const [showExpired, setShowExpired] = useState(false)
   const [loading, setLoading] = useState(true)
   const [isFetching, setIsFetching] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
@@ -278,7 +288,15 @@ export default function Cabinet() {
   const [deleteTarget, setDeleteTarget] = useState<{ entryId: number; slot: TimeSlot; name: string } | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const hasFetchedOnce = useRef(false)
+  // Tracks in-flight log requests by "entryId-slot" key.
+  // Prevents duplicate API calls when the user presses/holds rapidly
+  // before the optimistic UI update has time to re-render the card.
+  const loggingInFlight = useRef<Set<string>>(new Set())
   const [customTimes, setCustomTimes] = useState<Record<string, string>>({})
+  
+  // Floating HUD top bar states
+  const [scrolled, setScrolled] = useState(false)
+  const [safetySeverity, setSafetySeverity] = useState<'safe' | 'moderate' | 'severe' | null>(null)
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -300,6 +318,7 @@ export default function Cabinet() {
         `/medicine/cabinet?user_id=${userId}&tz_offset=${tzOffset}&local_date=${localDate}`
       )
       setMedicines(res.data.medicines || [])
+      setExpiredMedicines(res.data.expired_medicines || [])
       hasFetchedOnce.current = true
 
       // Sync active schedules to the Service Worker in the background
@@ -347,19 +366,112 @@ export default function Cabinet() {
     }
   }, [activeMemberId, user?.id, fetchCabinet])
 
+  // Auto-scroll to closest active time slot containing medicines on load
+  useEffect(() => {
+    if (loading || medicines.length === 0) return
+
+    const timer = setTimeout(() => {
+      const currentHour = new Date().getHours()
+      let closestSlot: TimeSlot = 'morning'
+      
+      if (currentHour >= 12 && currentHour < 16) closestSlot = 'afternoon'
+      else if (currentHour >= 16 && currentHour < 20) closestSlot = 'evening'
+      else if (currentHour >= 20 || currentHour < 6) closestSlot = 'night'
+      
+      const order: TimeSlot[] = ['morning', 'afternoon', 'evening', 'night']
+      const startIndex = order.indexOf(closestSlot)
+      let targetSlot: TimeSlot | null = null
+      
+      // Look for the closest slot in time that actually has medicines to display
+      for (let i = 0; i < 4; i++) {
+        const checkSlot = order[(startIndex + i) % 4]
+        if (medicines.some((m) => m.schedule.includes(checkSlot))) {
+          targetSlot = checkSlot
+          break
+        }
+      }
+      
+      if (targetSlot) {
+        const el = document.getElementById(`slot-section-${targetSlot}`)
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }
+    }, 450) // Settle render layout first
+
+    return () => clearTimeout(timer)
+  }, [loading, medicines])
+
+  // Monitor scrolling position to display sticky HUD
+  useEffect(() => {
+    let container: Element | null = null
+    
+    const bindScroll = () => {
+      container = document.querySelector('.page-content')
+      if (container) {
+        container.addEventListener('scroll', handleScroll, { passive: true })
+      }
+    }
+
+    const handleScroll = () => {
+      if (container) {
+        setScrolled(container.scrollTop > 180)
+      }
+    }
+
+    bindScroll()
+    const t = setTimeout(bindScroll, 800)
+
+    return () => {
+      clearTimeout(t)
+      if (container) {
+        container.removeEventListener('scroll', handleScroll)
+      }
+    }
+  }, [])
+
   const handleLog = async (entryId: number, slot: TimeSlot) => {
+    const key = `${entryId}-${slot}`
+
+    // Guard 1: request already in-flight for this (medicine, slot) pair
+    if (loggingInFlight.current.has(key)) return
+
+    // Guard 2: already marked as logged in local state — no-op
+    const med = medicines.find((m) => m.id === entryId)
+    if (med?.today_logs?.includes(slot)) return
+
+    loggingInFlight.current.add(key)
+
+    // ── Optimistic update ─────────────────────────────────────────────────
+    // Flip the card to "logged" state IMMEDIATELY so the UI feels instant
+    // even across a 500ms+ network round-trip. We deduplicate the slot list
+    // with Set so a concurrent state update can never create duplicates.
+    setMedicines((prev) =>
+      prev.map((m) =>
+        m.id === entryId
+          ? { ...m, today_logs: [...new Set([...(m.today_logs || []), slot])] }
+          : m
+      )
+    )
+    showToast('✓ Dose logged!')
+    // ─────────────────────────────────────────────────────────────────────
+
     try {
       await api.post('/medicine/log', { entry_id: entryId, time_slot: slot })
-      showToast('✓ Dose logged!')
+      // 200 = already logged (idempotent), 201 = freshly created — both are success.
+      // The optimistic update is already correct; nothing else to do.
+    } catch {
+      // Network / server error: roll back the optimistic update
       setMedicines((prev) =>
         prev.map((m) =>
           m.id === entryId
-            ? { ...m, today_logs: [...(m.today_logs || []), slot] }
+            ? { ...m, today_logs: (m.today_logs || []).filter((s) => s !== slot) }
             : m
         )
       )
-    } catch {
-      showToast('Failed to log dose')
+      showToast('Failed to log dose — try again')
+    } finally {
+      loggingInFlight.current.delete(key)
     }
   }
 
@@ -407,7 +519,15 @@ export default function Cabinet() {
   const medicinesBySlot = (slot: TimeSlot) =>
     medicines.filter((m) => m.schedule.includes(slot))
 
-  const hasMedicines = medicines.length > 0
+  const totalDosesScheduled = medicines.reduce((acc, med) => acc + (med.schedule?.length || 0), 0)
+  const totalDosesTaken = medicines.reduce(
+    (acc, med) =>
+      acc + [...new Set(med.today_logs || [])].filter((s) => med.schedule.includes(s)).length,
+    0
+  )
+  const adherencePercent = totalDosesScheduled > 0 
+    ? Math.round((totalDosesTaken / totalDosesScheduled) * 100)
+    : 0
 
   return (
     <>
@@ -418,7 +538,7 @@ export default function Cabinet() {
       >
         {loading ? (
           <SkeletonRow count={3} />
-        ) : !hasMedicines ? (
+        ) : medicines.length === 0 && expiredMedicines.length === 0 ? (
           <EmptyState
             icon={<Archive size={48} color="var(--text-muted)" />}
             title="Cabinet is empty"
@@ -426,45 +546,122 @@ export default function Cabinet() {
           />
         ) : (
           <div style={{ paddingBottom: 16, opacity: isFetching ? 0.65 : 1, transition: 'opacity 0.2s ease' }}>
-            {(() => {
-              const totalDosesScheduled = medicines.reduce((acc, med) => acc + (med.schedule?.length || 0), 0)
-              const totalDosesTaken = medicines.reduce(
-                (acc, med) => acc + (med.today_logs ? med.today_logs.filter((s) => med.schedule.includes(s)).length : 0),
-                0
-              )
-              const adherencePercent = totalDosesScheduled > 0 
-                ? Math.round((totalDosesTaken / totalDosesScheduled) * 100)
-                : 0
-
-              return totalDosesScheduled > 0 ? (
-                <div className="adherence-dashboard-card">
-                  <div className="adherence-info">
-                    <div className="adherence-text-sec">
-                      <span className="adherence-score-title">Today&apos;s Adherence</span>
-                      <span className="adherence-score-val">{adherencePercent}%</span>
-                    </div>
-                    <span className="adherence-fraction">
-                      {totalDosesTaken} of {totalDosesScheduled} taken
-                    </span>
-                  </div>
-                  <div className="adherence-progress-track">
-                    <div 
-                      className="adherence-progress-bar" 
-                      style={{ width: `${adherencePercent}%` }} 
+            {scrolled && totalDosesScheduled > 0 && (
+              <div 
+                style={{
+                  position: 'fixed',
+                  bottom: 96, /* Raised to clear the center plus icon */
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  zIndex: 30,
+                  display: 'flex',
+                  justifyContent: 'center',
+                  pointerEvents: 'none',
+                  width: '100%',
+                  maxWidth: 460,
+                  padding: '0 16px',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    document.querySelector('.page-content')?.scrollTo({ top: 0, behavior: 'smooth' })
+                  }}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.85)',
+                    backdropFilter: 'blur(16px) saturate(140%)',
+                    WebkitBackdropFilter: 'blur(16px) saturate(140%)',
+                    border: '1px solid rgba(13, 148, 136, 0.22)',
+                    borderRadius: '999px',
+                    padding: '10px 20px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    boxShadow: '0 8px 32px rgba(13, 148, 136, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6)',
+                    pointerEvents: 'auto',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    transition: 'transform 0.15s ease',
+                  }}
+                  className="hover:scale-105 active:scale-95"
+                >
+                  <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                    Adherence: <strong style={{ color: 'var(--accent-teal)' }}>{adherencePercent}%</strong>
+                  </span>
+                  <span style={{ width: 1.5, height: 12, backgroundColor: 'var(--border-subtle)' }} />
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                    Cabinet Safety:
+                    <span 
+                      style={{ 
+                        width: 8, 
+                        height: 8, 
+                        borderRadius: '50%', 
+                        backgroundColor: 
+                          safetySeverity === 'severe' ? 'var(--danger-color, #dc2626)' 
+                          : safetySeverity === 'moderate' ? '#ea580c' 
+                          : '#16a34a',
+                        display: 'inline-block'
+                      }} 
                     />
-                  </div>
-                </div>
-              ) : null
-            })()}
+                  </span>
+                </button>
+              </div>
+            )}
 
-            <InteractionCheckerCard userId={activeMemberId} refreshTrigger={medicines.length} />
+            {totalDosesScheduled > 0 ? (
+              <div className="adherence-dashboard-card">
+                <div className="adherence-info">
+                  <div className="adherence-text-sec">
+                    <span className="adherence-score-title">Today&apos;s Adherence</span>
+                    <span className="adherence-score-val">{adherencePercent}%</span>
+                  </div>
+                  <span className="adherence-fraction">
+                    {totalDosesTaken} of {totalDosesScheduled} taken
+                  </span>
+                </div>
+                <div className="adherence-progress-track">
+                  <div 
+                    className="adherence-progress-bar" 
+                    style={{ width: `${adherencePercent}%` }} 
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            <InteractionCheckerCard 
+              userId={activeMemberId} 
+              refreshTrigger={medicines.length} 
+              onSeverityResolved={setSafetySeverity}
+            />
 
             <div className="cabinet-hero">
-              <span className="cabinet-hero-title">Today&apos;s schedule</span>
+              <div className="cabinet-hero-text">
+                <span className="cabinet-hero-greeting">
+                  {(() => {
+                    const h = new Date().getHours()
+                    if (h < 12) return 'Good Morning'
+                    if (h < 17) return 'Good Afternoon'
+                    if (h < 21) return 'Good Evening'
+                    return 'Good Night'
+                  })()}
+                </span>
+                <span className="cabinet-hero-title">Today&apos;s schedule</span>
+              </div>
               <span className="cabinet-hero-date">
                 {new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
               </span>
             </div>
+
+            {medicines.length === 0 && (
+              <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                <Pill size={36} color="var(--text-muted)" style={{ margin: '0 auto 12px', display: 'block', opacity: 0.6 }} />
+                <p style={{ fontWeight: 600, margin: 0, fontSize: 'var(--text-sm)' }}>No active medicines today</p>
+                <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 4 }}>
+                  All your active medicines will show up here.
+                </p>
+              </div>
+            )}
+
             {TIME_SLOTS.map(({ key, label, time }) => {
               const meds = medicinesBySlot(key)
               if (meds.length === 0) return null
@@ -484,11 +681,21 @@ export default function Cabinet() {
               }
 
               return (
-                <div key={key}>
+                <div key={key} id={`slot-section-${key}`}>
                   <div className={`time-band-header ${key}`}>
-                    <span>
-                      {label} · {timeDisplay}
-                    </span>
+                    <div className="time-band-header-content">
+                      <div className="time-band-title-wrap">
+                        {key === 'morning' && <Sunrise size={16} className="slot-icon morning" aria-hidden="true" />}
+                        {key === 'afternoon' && <Sun size={16} className="slot-icon afternoon" aria-hidden="true" />}
+                        {key === 'evening' && <Sunset size={16} className="slot-icon evening" aria-hidden="true" />}
+                        {key === 'night' && <Moon size={16} className="slot-icon night" aria-hidden="true" />}
+                        <span className="slot-label-text">{label}</span>
+                        <span className="slot-time-pill">{timeDisplay}</span>
+                      </div>
+                      <span className="slot-count-badge">
+                        {meds.length} {meds.length === 1 ? 'medicine' : 'medicines'}
+                      </span>
+                    </div>
                   </div>
                   <AnimatePresence initial={false}>
                     {meds.map((med) => (
@@ -507,6 +714,76 @@ export default function Cabinet() {
                 </div>
               )
             })}
+
+            {expiredMedicines.length > 0 && (
+              <div style={{ marginTop: 24, borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowExpired(!showExpired)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    width: '100%',
+                    background: 'none',
+                    border: 'none',
+                    padding: '8px 16px',
+                    cursor: 'pointer',
+                    color: 'var(--text-secondary)',
+                    fontWeight: 600,
+                    fontSize: 'var(--text-sm)'
+                  }}
+                >
+                  <span>Past / Expired Medicines ({expiredMedicines.length})</span>
+                  <span style={{ fontSize: 'var(--text-xs)', transform: showExpired ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }}>▼</span>
+                </button>
+
+                {showExpired && (
+                  <div style={{ padding: '8px 16px 0', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {expiredMedicines.map((med) => (
+                      <div 
+                        key={med.id} 
+                        style={{ 
+                          padding: 12, 
+                          background: 'var(--bg-secondary)', 
+                          border: '1px solid var(--border-subtle)', 
+                          borderRadius: 'var(--radius-md)',
+                          opacity: 0.75,
+                          position: 'relative'
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
+                          {med.name}
+                        </div>
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 4, display: 'flex', gap: 12 }}>
+                          {med.dosage && <span>Dosage: {med.dosage}</span>}
+                          {med.days != null && <span>Duration: {med.days} days (Expired)</span>}
+                        </div>
+                        
+                        <div style={{ position: 'absolute', right: 12, top: 12, display: 'flex', gap: 12 }}>
+                          <button
+                            type="button"
+                            onClick={() => setEditingMed(med)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0 }}
+                            title="Edit"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => requestDeleteMed(med.id, med.schedule[0] || 'morning')}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger-color)', padding: 0 }}
+                            title="Delete"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </AppLayout>

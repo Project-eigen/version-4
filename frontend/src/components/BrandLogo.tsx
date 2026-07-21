@@ -109,11 +109,35 @@ export default function BrandLogo({
             letterSpacing: '-0.5px',
             lineHeight: 1,
             display: 'inline-flex',
-            alignItems: 'center'
+            alignItems: 'center',
+            position: 'relative'
           }}
         >
           <span style={{ color: 'var(--text-primary)' }}>Dawai</span>
           <span style={{ color: 'var(--accent-teal)', marginLeft: '1px' }}>Sathi</span>
+          <span 
+            className="brand-v4-badge"
+            style={{
+              marginLeft: '6px',
+              fontSize: '0.55rem',
+              fontWeight: 700,
+              fontFamily: "'Space Grotesk', sans-serif",
+              letterSpacing: '0.4px',
+              color: 'var(--accent-teal)',
+              background: 'rgba(13, 148, 136, 0.08)',
+              border: '1px solid rgba(13, 148, 136, 0.2)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+              padding: '2px 7px',
+              borderRadius: '100px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              lineHeight: 1,
+              boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.8)'
+            }}
+          >
+            v4.0
+          </span>
         </span>
       </div>
     )

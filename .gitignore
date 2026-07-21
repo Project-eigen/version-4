@@ -3,6 +3,12 @@
 # ========================
 
 # Environment / Secrets (NEVER commit these)
+.env
+.env.*
+*.env
+*.env.*
+*.env.txt
+dawaisathi*.env*
 backend/.env
 frontend/.env
 frontend/.env.local
@@ -10,6 +16,7 @@ frontend/.env.local
 # API keys & OAuth files (sensitive)
 gemini_api_key.md
 oauth_id.json
+production_audit.md
 
 # Python
 __pycache__/

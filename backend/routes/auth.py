@@ -2,7 +2,7 @@ import os
 import jwt
 import requests
 from datetime import datetime, timedelta
-from flask import Blueprint, redirect, request, jsonify, current_app
+from flask import Blueprint, redirect, request, jsonify, current_app, make_response
 from extensions import db, safe_commit
 from models import User, Family
 import random
@@ -14,9 +14,6 @@ GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
-
-def generate_family_code():
-    return "".join(random.choices(string.digits, k=6))
 
 
 def create_jwt(user_id: int, expires_in_hours: int = 720) -> str:
@@ -109,11 +106,66 @@ def google_callback():
             avatar_url=avatar_url,
         )
         db.session.add(user)
-        safe_commit()
+        db.session.flush()  # get user.id without committing
+
+    # ── Auto-create solo family if needed ────────────────────────────────────
+    # New users always get a personal family. Existing users who somehow missed
+    # this step (pre-feature accounts) are also migrated on their next login.
+    # Guest accounts (google_id starts with "guest_") are excluded.
+    if not user.family_id and not google_id.startswith("guest_"):
+        from routes.family import generate_family_code
+        first_name = name.split()[0] if name else "My"
+        solo_family = Family(
+            name=f"{first_name}'s Family",
+            family_code=generate_family_code(),
+        )
+        db.session.add(solo_family)
+        db.session.flush()  # get solo_family.id
+        user.family_id = solo_family.id
+        current_app.logger.info(
+            "Auto-created solo family '%s' (id=%s) for user %s",
+            solo_family.name, solo_family.id, user.id,
+        )
+
+    safe_commit()
 
     token = create_jwt(user.id)
     frontend_url = current_app.config["FRONTEND_URL"]
-    return redirect(f"{frontend_url}/auth/success?token={token}&new={str(is_new).lower()}")
+
+    # Secure callback: Set HttpOnly cookie instead of URL query param
+    resp = make_response(redirect(f"{frontend_url}/auth/success?new={str(is_new).lower()}"))
+    secure_cookie = os.environ.get("RENDER") == "true" or current_app.config.get("ENV") == "production"
+    resp.set_cookie(
+        "auth_callback_token",
+        token,
+        max_age=60,  # 1 minute
+        httponly=True,
+        secure=secure_cookie,
+        samesite="Lax",
+    )
+    return resp
+
+
+@auth_bp.route("/api/auth/exchange-token", methods=["POST"])
+def exchange_token():
+    """Exchange temporary cookie for JWT payload."""
+    token = request.cookies.get("auth_callback_token")
+    if not token:
+        return jsonify({"error": "No temporary auth token found", "code": "TOKEN_NOT_FOUND"}), 400
+
+    resp = make_response(jsonify({"token": token}))
+    # Delete the cookie immediately
+    secure_cookie = os.environ.get("RENDER") == "true" or current_app.config.get("ENV") == "production"
+    resp.set_cookie(
+        "auth_callback_token",
+        "",
+        expires=0,
+        httponly=True,
+        secure=secure_cookie,
+        samesite="Lax",
+    )
+    return resp
+
 
 
 @auth_bp.route("/api/auth/me")
@@ -151,7 +203,7 @@ def guest_login():
         if old_guest_ids:
             # Delete related data first
             PushSubscription.query.filter(PushSubscription.user_id.in_(old_guest_ids)).delete(synchronize_session=False)
-            MedicineLog.query.filter(MedicineLog.user_id.in_(old_guest_ids)).delete(synchronize_session=False)
+            MedicineLog.query.filter(MedicineLog.logged_by_user_id.in_(old_guest_ids)).delete(synchronize_session=False)
             MedicineEntry.query.filter(MedicineEntry.user_id.in_(old_guest_ids)).delete(synchronize_session=False)
             FamilyJoinRequest.query.filter(
                 (FamilyJoinRequest.requester_id.in_(old_guest_ids)) |

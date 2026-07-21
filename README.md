@@ -1,4 +1,4 @@
-# DawaiSathi — AI-Powered Family Medicine Cabinet
+# DawaiSathi v4.0 — AI-Powered Family Medicine Cabinet
 
 > Scan prescriptions, manage medicines, share with family — all from one phone.
 
@@ -16,17 +16,16 @@ curl -sS "https://dawaisathi-api.onrender.com/healthz"
 curl -sS "https://dawaisathi-api.onrender.com/api/notifications/trigger-check?cron_secret=YOUR_CRON_SECRET"
 ```
 
-## Features
+## Features in v4.0
 
-- **AI Prescription Scanner** — Point your camera at a prescription; Gemini Vision AI extracts medicine names, dosages, schedules, and instructions
-- **Medicine Cabinet** — Daily schedule organized by time slots (Morning, Afternoon, Evening, Night)
-- **Family Mode** — Multiple family members with individual cabinets, join via invite
-- **Push Notifications** — Web Push + Telegram reminders at each time slot
-- **Offline-First PWA** — Works offline with cached cabinet data; IndexedDB queue for offline sync
-- **Google OAuth** — Sign in with Google, JWT session management
-- **Ops health** — Public `GET /healthz` includes notification system flags and last cron run
-- **Real-Time Quality Feedback** — Image brightness/contrast analysis before scan submission
-- **Camera Error Guidance** — Step-by-step instructions when camera permissions are denied
+- **Zero-Setup Family Provisioning**: Instant solo family creation on sign-up with dynamic 6-digit invite code rotation.
+- **AI Prescription Scanner**: Point camera at a prescription; Gemini Vision AI extracts medicine names, dosages, schedules, and instructions.
+- **AI Drug Safety Shield**: Automatic interaction checker detecting drug-drug conflicts and food/dietary guidelines.
+- **Smart Time-Slot Auto-Scroll & Floating HUD**: Auto-scrolls straight to active dose slots; floating glassy bottom capsule provides instant adherence score & cabinet safety indicators.
+- **Glassmorphic UI Design System**: Apple Health-inspired glassmorphism with time-of-day headers (🌅 Morning, ☀️ Afternoon, 🌇 Evening, 🌙 Night).
+- **Desktop & Mobile Ergonomics**: Single-click logging on desktop trackpads; 400ms hold gesture on mobile touch screens to prevent accidental triggers.
+- **Secure Token Exchange**: OAuth callback uses short-lived HttpOnly exchange cookies instead of URL parameters.
+- **Push & Telegram Reminders**: Web Push (VAPID) + Telegram notifications at each scheduled time slot.
 
 ## Prerequisites
 
@@ -42,8 +41,8 @@ curl -sS "https://dawaisathi-api.onrender.com/api/notifications/trigger-check?cr
 ### 1. Clone
 
 ```bash
-git clone https://github.com/Project-eigen/version_3.git
-cd version_3
+git clone https://github.com/Project-eigen/version-4.git
+cd version-4
 ```
 
 ### 2. Backend

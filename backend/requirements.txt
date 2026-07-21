@@ -14,3 +14,4 @@ pywebpush==2.3.0
 gunicorn==22.0.0
 psycopg2-binary==2.9.9
 cloudinary==1.41.0
+Flask-Limiter==3.9.0

@@ -20,9 +20,10 @@ interface InteractionResult {
 interface InteractionCheckerCardProps {
   userId: number
   refreshTrigger?: number
+  onSeverityResolved?: (severity: 'safe' | 'moderate' | 'severe') => void
 }
 
-export default function InteractionCheckerCard({ userId, refreshTrigger }: InteractionCheckerCardProps) {
+export default function InteractionCheckerCard({ userId, refreshTrigger, onSeverityResolved }: InteractionCheckerCardProps) {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<InteractionResult | null>(null)
   const [expanded, setExpanded] = useState(false)
@@ -34,13 +35,16 @@ export default function InteractionCheckerCard({ userId, refreshTrigger }: Inter
     try {
       const res = await api.post('/medicine/check-interactions', { user_id: userId })
       setResult(res.data)
+      if (onSeverityResolved && res.data?.severity) {
+        onSeverityResolved(res.data.severity)
+      }
     } catch (err) {
       if (import.meta.env.DEV) console.error('Failed to run interaction check', err)
       setError(true)
     } finally {
       setLoading(false)
     }
-  }, [userId])
+  }, [userId, onSeverityResolved])
 
   useEffect(() => {
     checkInteractions()

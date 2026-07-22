@@ -6,7 +6,11 @@ import Modal from '../components/Modal'
 import Accordion from '../components/Accordion'
 import Toast from '../components/Toast'
 import api from '../api/client'
-import { Bell, RefreshCw, LogOut, Info } from 'lucide-react'
+import { Bell, RefreshCw, LogOut, Info, Globe, Moon } from 'lucide-react'
+import { getStoredTheme, applyTheme } from '../utils/theme'
+import type { ThemeMode } from '../utils/theme'
+import { useLanguage } from '../utils/i18n'
+import type { Language } from '../utils/i18n'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type TimeSlotKey = 'morning' | 'afternoon' | 'evening' | 'night'
@@ -61,6 +65,19 @@ async function urlBase64ToUint8Array(base64String: string): Promise<Uint8Array> 
 
 export default function SettingsDashboard() {
   const { user, logout, activeMemberId } = useAuth()
+  const { lang: currentLang, setLanguage } = useLanguage()
+  const [themeMode, setThemeMode] = useState<ThemeMode>(getStoredTheme())
+
+  const handleThemeChange = (mode: ThemeMode) => {
+    setThemeMode(mode)
+    applyTheme(mode)
+    showToast(`Theme set to ${mode}`, 'success')
+  }
+
+  const handleLangChange = (mode: Language) => {
+    setLanguage(mode)
+    showToast(mode === 'hi' ? 'भाषा बदलकर हिंदी कर दी गई' : 'Language set to English', 'success')
+  }
 
   // Unified loading and fetch status
   const [loading, setLoading] = useState(true)
@@ -384,6 +401,74 @@ export default function SettingsDashboard() {
                   <LogOut size={13} aria-hidden="true" />
                   Logout
                 </button>
+              </div>
+
+              <hr className="divider" />
+
+              {/* App Theme */}
+              <div className="form-block">
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Moon size={14} style={{ color: 'var(--accent-teal)' }} /> App Theme / डार्क मोड
+                </label>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  {(['system', 'light', 'dark'] as const).map((tMode) => (
+                    <button
+                      key={tMode}
+                      type="button"
+                      onClick={() => handleThemeChange(tMode)}
+                      style={{
+                        flex: 1,
+                        padding: '10px 8px',
+                        borderRadius: 'var(--radius-md, 12px)',
+                        border: themeMode === tMode ? '2px solid var(--accent-teal)' : '1px solid var(--border-subtle)',
+                        background: themeMode === tMode ? 'rgba(45, 212, 191, 0.15)' : 'var(--bg-glass)',
+                        color: themeMode === tMode ? 'var(--accent-teal)' : 'var(--text-secondary)',
+                        fontWeight: 700,
+                        fontSize: '0.82rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      {tMode === 'system' ? '💻 System' : tMode === 'light' ? '☀️ Light' : '🌙 Dark'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* App Language */}
+              <div className="form-block" style={{ marginTop: 16 }}>
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Globe size={14} style={{ color: 'var(--accent-teal)' }} /> Language / भाषा
+                </label>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  {(['en', 'hi'] as const).map((lMode) => (
+                    <button
+                      key={lMode}
+                      type="button"
+                      onClick={() => handleLangChange(lMode)}
+                      style={{
+                        flex: 1,
+                        padding: '10px 8px',
+                        borderRadius: 'var(--radius-md, 12px)',
+                        border: currentLang === lMode ? '2px solid var(--accent-teal)' : '1px solid var(--border-subtle)',
+                        background: currentLang === lMode ? 'rgba(45, 212, 191, 0.15)' : 'var(--bg-glass)',
+                        color: currentLang === lMode ? 'var(--accent-teal)' : 'var(--text-secondary)',
+                        fontWeight: 700,
+                        fontSize: '0.82rem',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      {lMode === 'en' ? '🇬🇧 English' : '🇮🇳 हिंदी'}
+                    </button>
+                  ))}
+                </div>
               </div>
             </Accordion>
 

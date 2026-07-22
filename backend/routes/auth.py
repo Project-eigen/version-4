@@ -5,10 +5,16 @@ from datetime import datetime, timedelta
 from flask import Blueprint, redirect, request, jsonify, current_app, make_response
 from extensions import db, safe_commit
 from models import User, Family
-import random
-import string
 
 auth_bp = Blueprint("auth", __name__)
+
+
+@auth_bp.after_request
+def add_security_headers(response):
+    """Prevent auth tokens from being cached by browsers, proxies, or CDNs."""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"

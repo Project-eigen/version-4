@@ -3,8 +3,8 @@ import json
 from datetime import datetime, date
 from flask import Blueprint, request, jsonify, send_from_directory, current_app
 from werkzeug.exceptions import NotFound
-from extensions import db, safe_commit
-from models import User, MedicineEntry, MedicineLog
+from extensions import db, safe_commit, limiter
+from models import User, MedicineEntry, MedicineLog, PrescriptionScan
 from routes.auth import get_current_user
 from cloudinary_utils import upload_image_bytes, CloudinaryUploadError
 import jwt
@@ -57,8 +57,17 @@ If a field cannot be determined, use null. Return ONLY the JSON."""
 
 
 @medicine_bp.route("/api/medicine/scan", methods=["POST"])
+@limiter.limit("10 per hour", error_message="Scan limit reached. You can scan up to 10 prescriptions per hour. Please try again later.")
 def scan_medicine():
-    """Scan a medicine image using Gemini Flash and extract details."""
+    """Scan a medicine image using Gemini Flash and extract details.
+
+    Image pipeline:
+    - Original bytes → Gemini (full quality for best OCR on handwritten prescriptions)
+    - Compressed copy (800px, q70) → Cloudinary (display thumbnail only)
+
+    IMPORTANT: Do NOT compress before sending to Gemini. Compression degrades
+    handwritten text in prescriptions and reduces extraction accuracy.
+    """
     user = get_current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
@@ -72,75 +81,103 @@ def scan_medicine():
     if len(image_bytes) > current_app.config["MAX_CONTENT_LENGTH"]:
         return jsonify({"error": "Image too large (max 16MB)", "code": "IMAGE_TOO_LARGE", "retryable": False}), 413
 
+    # ── Parse image for Pillow (needed both for Gemini API and storage) ────────
     try:
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-        max_size = 1000
-        if max(img.size) > max_size:
-            img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-        buffered = io.BytesIO()
-        img.save(buffered, format="JPEG", quality=75)
+        img_for_gemini = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     except Exception as e:
         current_app.logger.error(f"Image processing error: {e}")
         return jsonify({"error": "Failed to process image", "code": "IMAGE_PROCESS_ERROR", "retryable": False}), 422
 
+    # ── Prepare a SEPARATE compressed copy for Cloudinary storage only ─────────
+    # This compressed version is for display (medicine card thumbnail) only.
+    # Gemini receives the full-quality img_for_gemini object above.
     try:
-        scan_image_url = upload_image_bytes(buffered.getvalue(), folder="dawaisathi")
-    except CloudinaryUploadError as e:
-        return jsonify({
-            "error": "Image upload to CDN failed. Check CLOUDINARY_URL.",
-            "code": "CLOUDINARY_UPLOAD_FAILED",
-            "retryable": True,
-            "detail": str(e),
-        }), 502
+        storage_img = img_for_gemini.copy()
+        max_storage_size = 800
+        if max(storage_img.size) > max_storage_size:
+            storage_img.thumbnail((max_storage_size, max_storage_size), Image.Resampling.LANCZOS)
+        storage_buffer = io.BytesIO()
+        storage_img.save(storage_buffer, format="JPEG", quality=70)
+        storage_bytes = storage_buffer.getvalue()
+    except Exception as e:
+        current_app.logger.error(f"Storage image preparation error: {e}")
+        # Non-fatal — we can still proceed without the storage copy
+        storage_bytes = None
+
+    # ── Upload the compressed version to Cloudinary for display ───────────────
+    scan_image_url = ""
+    if storage_bytes:
+        try:
+            scan_image_url = upload_image_bytes(storage_bytes, folder="dawaisathi")
+        except CloudinaryUploadError as e:
+            return jsonify({
+                "error": "Image upload to CDN failed. Check CLOUDINARY_URL.",
+                "code": "CLOUDINARY_UPLOAD_FAILED",
+                "retryable": True,
+                "detail": str(e),
+            }), 502
 
     api_key = current_app.config.get("GEMINI_API_KEY")
     if not api_key:
         return jsonify({"error": "Gemini API not configured on server", "code": "GEMINI_NOT_CONFIGURED", "retryable": False}), 500
 
     import time
-    max_retries = 2
+    candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest", "gemini-2.5-pro"]
     last_error = None
-    for attempt in range(max_retries):
-        try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-2.5-flash")
-            response = model.generate_content([SCAN_PROMPT, img])
-            raw_text = response.text.strip()
 
-            import re
-            json_match = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
-            if json_match:
-                json_str = json_match.group(1).strip()
-            else:
-                json_str = raw_text
+    for model_name in candidate_models:
+        for attempt in range(2):
+            try:
+                genai.configure(api_key=api_key)
+                model = genai.GenerativeModel(model_name)
+                # Send full-quality PIL Image object — uncompressed for max OCR accuracy
+                response = model.generate_content([SCAN_PROMPT, img_for_gemini])
+                raw_text = response.text.strip()
 
-            extracted = json.loads(json_str)
+                import re
+                json_match = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
+                json_str = json_match.group(1).strip() if json_match else raw_text
 
-            if isinstance(extracted, dict):
-                if "medicines" not in extracted:
-                    if "name" in extracted:
-                        extracted = {"medicines": [extracted]}
-                    else:
-                        extracted = {"medicines": []}
-            elif isinstance(extracted, list):
-                extracted = {"medicines": extracted}
-            else:
-                extracted = {"medicines": []}
+                extracted = json.loads(json_str)
 
-            return jsonify({"scan_image_url": scan_image_url, "extracted": extracted})
+                if isinstance(extracted, dict):
+                    if "medicines" not in extracted:
+                        if "name" in extracted:
+                            extracted = {"medicines": [extracted]}
+                        else:
+                            extracted = {"medicines": []}
+                elif isinstance(extracted, list):
+                    extracted = {"medicines": extracted}
+                else:
+                    extracted = {"medicines": []}
 
-        except Exception as e:
-            last_error = str(e)
-            current_app.logger.error(f"Gemini attempt {attempt+1}/{max_retries} failed: {e}")
-            if attempt < max_retries - 1:
-                time.sleep(2 ** attempt)
+                current_app.logger.info(f"Prescription scan successful using {model_name}")
+                try:
+                    scan_record = PrescriptionScan(
+                        user_id=user.id,
+                        family_id=user.family_id,
+                        scan_image_url=scan_image_url,
+                        medicines_json=json.dumps(extracted.get("medicines", []))
+                    )
+                    db.session.add(scan_record)
+                    safe_commit()
+                except Exception as scan_db_err:
+                    current_app.logger.warning(f"Could not save scan history record: {scan_db_err}")
+
+                return jsonify({"scan_image_url": scan_image_url, "extracted": extracted})
+
+            except Exception as e:
+                last_error = str(e)
+                current_app.logger.warning(f"Gemini scan model {model_name} attempt {attempt+1} failed: {e}")
+                time.sleep(0.5)
 
     err_lower = last_error.lower() if last_error else ""
-    if "quota" in err_lower or "rate" in err_lower or "safet" in err_lower:
-        return jsonify({"error": "API rate limit hit. Please wait and try again.", "code": "GEMINI_RATE_LIMIT", "retryable": True}), 429
+    if "quota" in err_lower or "rate" in err_lower:
+        return jsonify({"error": "AI rate limit reached. Please try again in 1 minute.", "code": "GEMINI_RATE_LIMIT", "retryable": True}), 429
     if "api_key" in err_lower or "auth" in err_lower or "permission" in err_lower:
-        return jsonify({"error": "Server API key error. Contact support.", "code": "GEMINI_AUTH_ERROR", "retryable": False}), 500
-    return jsonify({"error": "Failed to extract medicines. Try a clearer photo.", "code": "GEMINI_EXTRACTION_FAILED", "retryable": True}), 500
+        return jsonify({"error": "Server AI key error. Please contact administrator.", "code": "GEMINI_AUTH_ERROR", "retryable": False}), 500
+    
+    return jsonify({"error": "Failed to extract medicines from image. Please ensure the prescription photo is clear and well-lit.", "code": "GEMINI_EXTRACTION_FAILED", "retryable": True}), 422
 
 
 @medicine_bp.route("/api/medicine/add", methods=["POST"])
@@ -591,6 +628,16 @@ def batch_add_medicines():
             errors.append({"index": idx, "error": "Invalid schedule slots", "code": "INVALID_SCHEDULE"})
             continue
 
+        quantity = None
+        quantity_raw = med.get("quantity")
+        if quantity_raw is not None and str(quantity_raw).strip():
+            try:
+                quantity = int(quantity_raw)
+                if quantity < 0:
+                    quantity = None
+            except (ValueError, TypeError):
+                quantity = None
+
         days = None
         if days_raw is not None and str(days_raw).strip():
             try:
@@ -612,6 +659,7 @@ def batch_add_medicines():
             instructions=instructions.strip() if instructions else None,
             scan_image_url=scan_image_url,
             pack_image_url=pack_image_url,
+            quantity=quantity,
         )
         db.session.add(entry)
         added_entries.append(entry)
@@ -705,24 +753,397 @@ def check_interactions():
             "food_advice": ["Take medicines as prescribed by your physician."],
         })
 
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.5-flash")
-        prompt = INTERACTION_PROMPT.format(medicine_list=medicine_str)
-        response = model.generate_content(prompt)
-        raw_text = response.text.strip()
+    candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest", "gemini-2.5-pro"]
+    for model_name in candidate_models:
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel(model_name)
+            prompt = INTERACTION_PROMPT.format(medicine_list=medicine_str)
+            response = model.generate_content(prompt)
+            raw_text = response.text.strip()
 
-        import re
-        json_match = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
-        json_str = json_match.group(1).strip() if json_match else raw_text
+            import re
+            json_match = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
+            json_str = json_match.group(1).strip() if json_match else raw_text
 
-        result = json.loads(json_str)
-        return jsonify(result)
-    except Exception as e:
-        current_app.logger.error(f"Interaction check failed: {e}")
+            result = json.loads(json_str)
+            return jsonify(result)
+        except Exception as e:
+            current_app.logger.warning(f"Interaction check model {model_name} failed: {e}")
+
+    return jsonify({
+        "severity": "safe",
+        "summary": "No critical interactions detected.",
+        "interactions": [],
+        "food_advice": ["Take medicines as prescribed by your doctor."]
+    })
+
+
+@medicine_bp.route("/api/medicine/streak", methods=["GET"])
+def get_streak():
+    """Return the user's adherence streak and any missed doses from yesterday.
+
+    A streak day is a calendar day where the user logged ALL scheduled doses
+    for ALL their active medicines. Days with no scheduled medicines are
+    excluded from streak counting (they don't break or extend it).
+
+    Returns:
+        streak_days     (int)   — consecutive days streak ending today/yesterday
+        today_pct       (int)   — today's adherence % (0–100)
+        missed_yesterday (list) — list of {medicine_name, slot} for any
+                                  missed doses yesterday (drives missed-dose banner)
+    """
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    from datetime import timedelta
+
+    # Accept same tz_offset as /cabinet for consistency
+    tz_offset = request.args.get("tz_offset", 0, type=int)
+    target_user_id = request.args.get("user_id", user.id, type=int)
+
+    # Security: only allow viewing own data or family member data
+    if target_user_id != user.id:
+        target = User.query.get(target_user_id)
+        if not target or target.family_id != user.family_id:
+            return jsonify({"error": "Forbidden"}), 403
+
+    # ── Fetch all active medicine entries for this user ───────────────────────
+    # We purposely do NOT filter by expiry here — we want historical accuracy.
+    # An expired medicine that was active on day D should count toward that day's
+    # adherence when calculating the streak for day D.
+    all_entries = MedicineEntry.query.filter_by(user_id=target_user_id).all()
+
+    if not all_entries:
+        return jsonify({"streak_days": 0, "today_pct": 0, "missed_yesterday": []})
+
+    # ── Fetch all logs for this user (last 90 days — reasonable bound) ────────
+    cutoff = datetime.utcnow() - timedelta(days=90)
+    all_logs = MedicineLog.query.filter(
+        MedicineLog.entry_id.in_([e.id for e in all_entries]),
+        MedicineLog.logged_at >= cutoff,
+    ).all()
+
+    # Build a dict: {entry_id -> set(date_strings)}  for each slot
+    # Key: (entry_id, "morning") → {date_str, ...}
+    logged_map: dict = {}  # (entry_id, slot) -> set of date strings
+    for log in all_logs:
+        local_dt = log.logged_at - timedelta(minutes=tz_offset)
+        d_str = local_dt.date().isoformat()
+        key = (log.entry_id, log.time_slot)
+        logged_map.setdefault(key, set()).add(d_str)
+
+    earliest_date = min((e.created_at - timedelta(minutes=tz_offset)).date() for e in all_entries)
+
+    # ── Helper: did the user fully complete all doses on a given date? ─────────
+    def _all_logged_on(d: date) -> bool:
+        if d < earliest_date:
+            return False
+
+        d_str = d.isoformat()
+        active_count = 0
+        for entry in all_entries:
+            local_created = (entry.created_at - timedelta(minutes=tz_offset)).date()
+            if d < local_created:
+                continue  # medicine wasn't added yet on this day
+
+            if entry.days is not None:
+                expiry = local_created + timedelta(days=entry.days)
+                if d >= expiry:
+                    continue  # medicine was expired on this day
+
+            active_count += 1
+            for slot in entry.schedule:
+                if d_str not in logged_map.get((entry.id, slot), set()):
+                    return False
+
+        return active_count > 0
+
+    # ── Walk back from today counting consecutive complete days ───────────────
+    local_today = (datetime.utcnow() - timedelta(minutes=tz_offset)).date()
+    local_yesterday = local_today - timedelta(days=1)
+
+    streak = 0
+    check_date = local_today
+
+    # Today counts if 100% done; otherwise start checking from yesterday
+    # (a streak shouldn't break just because today isn't over)
+    if _all_logged_on(local_today):
+        streak = 1
+        check_date = local_yesterday
+    else:
+        check_date = local_yesterday
+
+    # Walk back up to 90 days
+    for _ in range(89):
+        if _all_logged_on(check_date):
+            streak += 1
+            check_date -= timedelta(days=1)
+        else:
+            break
+
+    # ── Today's adherence % ───────────────────────────────────────────────────
+    today_str = local_today.isoformat()
+    total_today = 0
+    taken_today = 0
+    for entry in all_entries:
+        if entry.days is not None:
+            local_created = entry.created_at - timedelta(minutes=tz_offset)
+            expiry = local_created.date() + timedelta(days=entry.days)
+            if local_today >= expiry or local_today < local_created.date():
+                continue
+        for slot in entry.schedule:
+            total_today += 1
+            if today_str in logged_map.get((entry.id, slot), set()):
+                taken_today += 1
+
+    today_pct = round((taken_today / total_today) * 100) if total_today > 0 else 0
+
+    # ── Missed doses from yesterday (for banner) ──────────────────────────────
+    yesterday_str = local_yesterday.isoformat()
+    missed_yesterday = []
+    for entry in all_entries:
+        if entry.days is not None:
+            local_created = entry.created_at - timedelta(minutes=tz_offset)
+            expiry = local_created.date() + timedelta(days=entry.days)
+            if local_yesterday >= expiry or local_yesterday < local_created.date():
+                continue
+        for slot in entry.schedule:
+            if yesterday_str not in logged_map.get((entry.id, slot), set()):
+                missed_yesterday.append({
+                    "medicine_name": entry.name,
+                    "medicine_id": entry.id,
+                    "slot": slot,
+                })
+
+    return jsonify({
+        "streak_days": streak,
+        "today_pct": today_pct,
+        "missed_yesterday": missed_yesterday,
+    })
+
+
+INFO_PROMPT = """You are a helpful Indian AI pharmacist assistant. Provide a brief 3-sentence explanation for the medicine "{name}" (dosage: "{dosage}").
+
+Return ONLY a valid JSON object with these exact keys:
+{{
+  "medicine_name": "{name}",
+  "purpose": "1 plain-language sentence explaining what this medicine is for.",
+  "how_to_take": "1 practical sentence on when or how to take it.",
+  "side_effects": "1 sentence on common mild side effects or precautions.",
+  "disclaimer": "Always follow your doctor's exact instructions."
+}}
+"""
+
+@medicine_bp.route("/api/medicine/info", methods=["POST"])
+def get_medicine_info():
+    """Get plain-language AI explanation of a medicine."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    dosage = (data.get("dosage") or "").strip()
+
+    if not name:
+        return jsonify({"error": "Medicine name required"}), 400
+
+    api_key = current_app.config.get("GEMINI_API_KEY")
+    if not api_key:
         return jsonify({
-            "severity": "safe",
-            "summary": "AI Safety check completed with standard precautions.",
-            "interactions": [],
-            "food_advice": ["Follow container instructions for food timing."],
+            "medicine_name": name,
+            "purpose": f"Information for {name}.",
+            "how_to_take": "Take as prescribed by your physician.",
+            "side_effects": "Consult your doctor if you experience discomfort.",
+            "disclaimer": "Always follow your doctor's exact instructions."
         })
+
+    candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest", "gemini-2.5-pro"]
+    for model_name in candidate_models:
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel(model_name)
+            prompt = INFO_PROMPT.format(name=name, dosage=dosage)
+            response = model.generate_content(prompt)
+            raw_text = response.text.strip()
+
+            import re
+            json_match = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
+            json_str = json_match.group(1).strip() if json_match else raw_text
+            res_obj = json.loads(json_str)
+            return jsonify(res_obj)
+        except Exception as e:
+            current_app.logger.warning(f"Medicine info model {model_name} failed: {e}")
+
+    return jsonify({
+        "medicine_name": name,
+        "purpose": f"Prescribed medication ({name}).",
+        "how_to_take": "Follow prescription timing instructions.",
+        "side_effects": "Consult physician for specific side effects.",
+        "disclaimer": "Always follow your doctor's exact instructions."
+    })
+
+
+@medicine_bp.route("/api/medicine/history", methods=["GET"])
+def get_scan_history():
+    """Fetch archived prescription scans for current user or family member."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    target_user_id = request.args.get("user_id", user.id, type=int)
+
+    if target_user_id != user.id:
+        target = User.query.get(target_user_id)
+        if not target or target.family_id != user.family_id:
+            return jsonify({"error": "Forbidden"}), 403
+
+    scans = PrescriptionScan.query.filter_by(user_id=target_user_id).order_by(PrescriptionScan.created_at.desc()).all()
+    return jsonify({"scans": [s.to_dict() for s in scans]})
+
+
+@medicine_bp.route("/api/medicine/history/<int:scan_id>", methods=["DELETE"])
+def delete_scan_history(scan_id):
+    """Delete an archived prescription scan record."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    scan = PrescriptionScan.query.get(scan_id)
+    if not scan:
+        return jsonify({"error": "Scan record not found"}), 404
+
+    if scan.user_id != user.id:
+        if not (scan.family_id and scan.family_id == user.family_id):
+            return jsonify({"error": "Forbidden"}), 403
+
+    db.session.delete(scan)
+    safe_commit()
+    return jsonify({"message": "Scan record deleted"})
+
+
+@medicine_bp.route("/api/medicine/report", methods=["GET"])
+def get_weekly_report():
+    """Get precise 7-day adherence report accounting for user join date and active medicine schedules."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    target_user_id = request.args.get("user_id", user.id, type=int)
+    tz_offset = request.args.get("tz_offset", 0, type=int)
+
+    if target_user_id != user.id:
+        target = User.query.get(target_user_id)
+        if not target or target.family_id != user.family_id:
+            return jsonify({"error": "Forbidden"}), 403
+
+    all_entries = MedicineEntry.query.filter_by(user_id=target_user_id).all()
+    user_obj = User.query.get(target_user_id)
+    user_created_date = (user_obj.created_at - timedelta(minutes=tz_offset)).date() if user_obj and user_obj.created_at else date.today()
+
+    cutoff = datetime.utcnow() - timedelta(days=14)
+    all_logs = MedicineLog.query.filter(
+        MedicineLog.entry_id.in_([e.id for e in all_entries]) if all_entries else db.false(),
+        MedicineLog.logged_at >= cutoff,
+    ).all()
+
+    logged_map = {}
+    for log in all_logs:
+        local_dt = log.logged_at - timedelta(minutes=tz_offset)
+        d_str = local_dt.date().isoformat()
+        key = (log.entry_id, log.time_slot)
+        logged_map.setdefault(key, set()).add(d_str)
+
+    local_today = (datetime.utcnow() - timedelta(minutes=tz_offset)).date()
+
+    timeline = []
+    tracked_scores = []
+
+    for i in range(6, -1, -1):
+        target_d = local_today - timedelta(days=i)
+        day_label = target_d.strftime("%a")
+        date_str = target_d.strftime("%b %d")
+
+        if target_d < user_created_date:
+            timeline.append({
+                "day": day_label,
+                "date_str": date_str,
+                "status": "untracked",
+                "taken": 0,
+                "total": 0,
+            })
+            continue
+
+        active_meds = []
+        for entry in all_entries:
+            med_created = (entry.created_at - timedelta(minutes=tz_offset)).date()
+            if target_d < med_created:
+                continue
+            if entry.days is not None:
+                expiry = med_created + timedelta(days=entry.days)
+                if target_d >= expiry:
+                    continue
+            active_meds.append(entry)
+
+        if not active_meds:
+            timeline.append({
+                "day": day_label,
+                "date_str": date_str,
+                "status": "no_doses",
+                "taken": 0,
+                "total": 0,
+            })
+            continue
+
+        total_doses = 0
+        taken_doses = 0
+        d_iso = target_d.isoformat()
+
+        for entry in active_meds:
+            for slot in entry.schedule:
+                total_doses += 1
+                if d_iso in logged_map.get((entry.id, slot), set()):
+                    taken_doses += 1
+
+        day_ratio = (taken_doses / total_doses) if total_doses > 0 else 1.0
+        tracked_scores.append(day_ratio)
+
+        status = "complete"
+        if total_doses > 0:
+            if taken_doses == total_doses:
+                status = "complete"
+            elif taken_doses > 0:
+                status = "partial"
+            elif target_d == local_today:
+                status = "pending"
+            else:
+                status = "missed"
+
+        timeline.append({
+            "day": day_label,
+            "date_str": date_str,
+            "status": status,
+            "taken": taken_doses,
+            "total": total_doses,
+        })
+
+    total_logs_count = len(all_logs)
+    is_new_user = (total_logs_count == 0)
+
+    if is_new_user:
+        overall_score = 0
+    elif tracked_scores:
+        overall_score = round((sum(tracked_scores) / len(tracked_scores)) * 100)
+    else:
+        overall_score = 0
+
+    return jsonify({
+        "userName": user_obj.name if user_obj else "User",
+        "adherencePct": overall_score,
+        "is_new_user": is_new_user,
+        "timeline": timeline,
+        "app_version": "v4.1",
+    })
+

@@ -279,30 +279,48 @@ export default function ScanApproval() {
     }
 
     setLoading(true)
-    // Phase 1: upload any custom pack images in parallel
-    setCurrentUploadIdx(null) // null = "Uploading images…" phase
+
     try {
-      const medicinesWithUrls = await Promise.all(
-        medicines.map(async (med) => {
-          let pack_image_url = med.packImage
-          if (med.packFile) {
-            const formData = new FormData()
-            formData.append('image', med.packFile)
-            const uploadRes = await api.post('/medicine/upload-image', formData, {
-              headers: { 'Content-Type': 'multipart/form-data' },
-            })
-            pack_image_url = uploadRes.data.url
-          }
-          return {
-            name: med.name.trim(),
-            dosage: med.dosage.trim(),
-            schedule: med.schedule,
-            days: med.days.trim(),
-            instructions: med.instructions.trim(),
-            pack_image_url,
-          }
+      // Phase 1: Upload pack images SEQUENTIALLY so the progress counter is accurate.
+      // Using Promise.all here would run uploads in parallel but show misleading
+      // "Uploading image X of Y" counts since all tasks update the index concurrently.
+      const medicinesWithUrls: Array<{
+        name: string
+        dosage: string
+        schedule: TimeSlot[]
+        days: string
+        instructions: string
+        pack_image_url: string | null
+      }> = []
+
+      const medicinesNeedingUpload = medicines.filter((m) => m.packFile)
+
+      for (let i = 0; i < medicines.length; i++) {
+        const med = medicines[i]
+        let pack_image_url: string | null = med.packImage
+
+        if (med.packFile) {
+          // Show accurate progress: "Uploading image 2 of 3"
+          const uploadNumber = medicinesNeedingUpload.indexOf(med) + 1
+          setCurrentUploadIdx(uploadNumber)
+
+          const formData = new FormData()
+          formData.append('image', med.packFile)
+          const uploadRes = await api.post('/medicine/upload-image', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          })
+          pack_image_url = uploadRes.data.url
+        }
+
+        medicinesWithUrls.push({
+          name: med.name.trim(),
+          dosage: med.dosage.trim(),
+          schedule: med.schedule,
+          days: med.days.trim(),
+          instructions: med.instructions.trim(),
+          pack_image_url,
         })
-      )
+      }
 
       // Phase 2: save all medicines in a single batch call
       setCurrentUploadIdx(-1) // -1 = "Saving to cabinet…" phase

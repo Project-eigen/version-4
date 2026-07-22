@@ -6,10 +6,11 @@ import SkeletonRow from '../components/SkeletonRow'
 import Toast from '../components/Toast'
 import EmptyState from '../components/EmptyState'
 import EditMedicineModal from '../components/EditMedicineModal'
+import MedicineInfoModal from '../components/MedicineInfoModal'
 import InteractionCheckerCard from '../components/InteractionCheckerCard'
 import api, { getImageUrl } from '../api/client'
 import type { User, MedicineEntry, TimeSlot } from '../types'
-import { Pill, Archive, X, Trash2, Pencil, Clock, Sun, Sunrise, Sunset, Moon } from 'lucide-react'
+import { Pill, Archive, X, Trash2, Pencil, Clock, Sun, Sunrise, Sunset, Moon, Flame, ChevronRight, Info } from 'lucide-react'
 
 const TIME_SLOTS: { key: TimeSlot; label: string; time: string }[] = [
   { key: 'morning', label: 'Morning', time: '8:00 AM' },
@@ -68,6 +69,7 @@ interface MedCardProps {
   onImageClick: (url: string) => void
   onDelete: (entryId: number, slot: TimeSlot) => void
   onEdit: (med: MedicineEntry) => void
+  onOpenInfo?: (name: string, dosage?: string) => void
 }
 
 import { motion, AnimatePresence } from 'framer-motion'
@@ -87,7 +89,19 @@ const cardVariants = {
   }
 }
 
-function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEdit }: MedCardProps) {
+// Swipe threshold in px to register a log gesture
+const SWIPE_THRESHOLD = 60
+
+// Keys for one-time hints stored in localStorage
+const SWIPE_HINT_KEY = 'ds_swipe_hint_dismissed'
+
+interface StreakData {
+  streak_days: number
+  today_pct: number
+  missed_yesterday: Array<{ medicine_name: string; medicine_id: number; slot: string }>
+}
+
+function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEdit, onOpenInfo }: MedCardProps) {
   const isLogged = med.today_logs?.includes(slot) ?? false
   const [loggingState, setLoggingState] = useState<LoggingState>(
     () => getLoggingState(slotTime, isLogged)
@@ -96,10 +110,16 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
   const [holding, setHolding] = useState(false)
   const [progress, setProgress] = useState(0)
   const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null)
-  
+
   // Detect if user is on a touch device
   const [isTouchDevice] = useState(() => {
     return 'ontouchstart' in window || navigator.maxTouchPoints > 0
+  })
+
+  // Swipe hint: shown on first visit, auto-dismissed after first successful swipe
+  const [showSwipeHint, setShowSwipeHint] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return !localStorage.getItem(SWIPE_HINT_KEY)
   })
 
   // Re-evaluate the logging window every 30 seconds so the card updates
@@ -113,6 +133,7 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
 
   const isDormant = loggingState === 'dormant'
 
+  // ── Desktop hold-to-log (unchanged for non-touch) ────────────────────────
   const startHold = () => {
     if (loggingState !== 'active') return
     setHolding(true)
@@ -139,6 +160,19 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
     setProgress(0)
   }
 
+  // ── Swipe-to-log handler (touch devices) ─────────────────────────────────
+  const handleSwipeDragEnd = (_: unknown, info: { offset: { x: number } }) => {
+    if (loggingState !== 'active') return
+    if (info.offset.x >= SWIPE_THRESHOLD) {
+      // Dismiss the hint permanently on first successful swipe
+      if (showSwipeHint) {
+        setShowSwipeHint(false)
+        localStorage.setItem(SWIPE_HINT_KEY, '1')
+      }
+      onLog(med.id, slot)
+    }
+  }
+
   const handleThumbClick = () => {
     if (med.pack_image_url) {
       onImageClick(getImageUrl(med.pack_image_url))
@@ -157,8 +191,81 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
       </>
     )
   } else {
-    barLabel = isTouchDevice ? 'Hold to log dose' : 'Click to log dose'
+    barLabel = isTouchDevice ? (
+      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {showSwipeHint && (
+          <motion.span
+            animate={{ x: [0, 6, 0] }}
+            transition={{ repeat: Infinity, duration: 1.2, ease: 'easeInOut' }}
+            style={{ display: 'flex', alignItems: 'center', opacity: 0.65 }}
+          >
+            <ChevronRight size={15} />
+            <ChevronRight size={15} style={{ marginLeft: -8 }} />
+          </motion.span>
+        )}
+        Swipe to log dose
+      </span>
+    ) : 'Click to log dose'
   }
+
+  // ── Touch: swipe-to-log via framer-motion drag ────────────────────────────
+  // ── Desktop: hold/click via motion.button ────────────────────────────────
+  const logBar = isTouchDevice ? (
+    <motion.button
+      drag={loggingState === 'active' ? 'x' : false}
+      dragConstraints={{ left: 0, right: 100 }}
+      dragElastic={0.15}
+      onDragEnd={handleSwipeDragEnd}
+      whileDrag={{ scale: 1.01 }}
+      className={`hold-log-bar ${loggingState}`}
+      style={
+        loggingState === 'active'
+          ? { cursor: 'grab', touchAction: 'pan-y' }
+          : undefined
+      }
+      disabled={isDormant}
+      aria-label={
+        loggingState === 'logged'
+          ? 'Dose already logged'
+          : loggingState === 'dormant'
+          ? `Not available yet. Opens at ${formatSlotTime(slotTime)}`
+          : 'Swipe right to log dose'
+      }
+      id={`log-btn-${med.id}-${slot}`}
+      type="button"
+    >
+      {barLabel}
+    </motion.button>
+  ) : (
+    <motion.button
+      whileTap={isDormant || loggingState === 'logged' ? undefined : { scale: 0.97 }}
+      className={`hold-log-bar ${loggingState}`}
+      onMouseDown={isDormant || loggingState === 'logged' ? undefined : startHold}
+      onMouseUp={isDormant || loggingState === 'logged' ? undefined : cancelHold}
+      onMouseLeave={isDormant || loggingState === 'logged' ? undefined : cancelHold}
+      onClick={isDormant || loggingState === 'logged' ? undefined : () => onLog(med.id, slot)}
+      style={
+        holding && loggingState === 'active'
+          ? {
+              background: `linear-gradient(to right, var(--logged-color) ${progress}%, #dc2626 ${progress}%)`,
+              color: 'white',
+            }
+          : undefined
+      }
+      disabled={isDormant}
+      aria-label={
+        loggingState === 'logged'
+          ? 'Dose already logged'
+          : loggingState === 'dormant'
+          ? `Not available yet. Opens at ${formatSlotTime(slotTime)}`
+          : 'Click to log dose'
+      }
+      id={`log-btn-${med.id}-${slot}`}
+      type="button"
+    >
+      {barLabel}
+    </motion.button>
+  )
 
   return (
     <motion.div
@@ -181,6 +288,8 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
               src={getImageUrl(med.pack_image_url)}
               alt={med.name}
               style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 12 }}
+              loading="lazy"
+              decoding="async"
             />
           ) : (
             <Pill size={22} color={isDormant ? 'var(--text-muted)' : 'var(--text-muted)'} />
@@ -188,8 +297,8 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
         </div>
 
         <div className="card-info">
-          <div className="med-name">
-            {med.name}
+          <div className="med-name" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span>{med.name}</span>
             {med.scan_image_url && (
               <button
                 className="view-rx-badge"
@@ -200,12 +309,47 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
                 Rx
               </button>
             )}
+            {onOpenInfo && (
+              <button
+                type="button"
+                onClick={() => onOpenInfo(med.name, med.dosage || undefined)}
+                style={{
+                  background: 'rgba(45, 212, 191, 0.12)',
+                  border: '1px solid rgba(45, 212, 191, 0.25)',
+                  borderRadius: '50%',
+                  width: 20,
+                  height: 20,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--accent-teal, #2dd4bf)',
+                  cursor: 'pointer',
+                  padding: 0,
+                  marginLeft: 2,
+                }}
+                title="AI Medicine Info"
+                aria-label="AI Medicine Info"
+              >
+                <Info size={12} />
+              </button>
+            )}
           </div>
 
           <div className="med-meta">
             {med.dosage && <span>Dosage: {med.dosage}</span>}
             {med.dosage && med.days != null && <span className="meta-dot"></span>}
             {med.days != null && <span>Duration: {med.days} days</span>}
+            {med.quantity != null && (
+              <>
+                <span className="meta-dot"></span>
+                <span style={{
+                  fontWeight: med.quantity <= 5 ? 700 : 500,
+                  color: med.quantity <= 5 ? 'var(--danger-color, #dc2626)' : 'var(--accent-teal)'
+                }}>
+                  {med.quantity <= 5 ? `⚠️ ${med.quantity} left` : `💊 ${med.quantity} left`}
+                </span>
+              </>
+            )}
           </div>
 
           {med.instructions && (
@@ -237,38 +381,7 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
 
       {/* Bottom Section */}
       <div className="card-bottom">
-        <motion.button
-          whileTap={isDormant || loggingState === 'logged' ? undefined : { scale: 0.97 }}
-          className={`hold-log-bar ${loggingState}`}
-          onMouseDown={isDormant || loggingState === 'logged' || !isTouchDevice ? undefined : startHold}
-          onMouseUp={isDormant || loggingState === 'logged' || !isTouchDevice ? undefined : cancelHold}
-          onMouseLeave={isDormant || loggingState === 'logged' || !isTouchDevice ? undefined : cancelHold}
-          onTouchStart={isDormant || loggingState === 'logged' || !isTouchDevice ? undefined : startHold}
-          onTouchEnd={isDormant || loggingState === 'logged' || !isTouchDevice ? undefined : cancelHold}
-          onClick={isDormant || loggingState === 'logged' || isTouchDevice ? undefined : () => onLog(med.id, slot)}
-          style={
-            holding && loggingState === 'active'
-              ? {
-                  background: `linear-gradient(to right, var(--logged-color) ${progress}%, #dc2626 ${progress}%)`,
-                  color: 'white',
-                }
-              : undefined
-          }
-          disabled={isDormant}
-          aria-label={
-            loggingState === 'logged'
-              ? 'Dose already logged'
-              : loggingState === 'dormant'
-              ? `Not available yet. Opens at ${formatSlotTime(slotTime)}`
-              : isTouchDevice
-              ? 'Hold to log dose'
-              : 'Click to log dose'
-          }
-          id={`log-btn-${med.id}-${slot}`}
-          type="button"
-        >
-          {barLabel}
-        </motion.button>
+        {logBar}
       </div>
     </motion.div>
   )
@@ -287,12 +400,17 @@ export default function Cabinet() {
   const [editingMed, setEditingMed] = useState<MedicineEntry | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ entryId: number; slot: TimeSlot; name: string } | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [infoModalMed, setInfoModalMed] = useState<{ name: string; dosage?: string } | null>(null)
   const hasFetchedOnce = useRef(false)
   // Tracks in-flight log requests by "entryId-slot" key.
   // Prevents duplicate API calls when the user presses/holds rapidly
   // before the optimistic UI update has time to re-render the card.
   const loggingInFlight = useRef<Set<string>>(new Set())
   const [customTimes, setCustomTimes] = useState<Record<string, string>>({})
+
+  // Streak & missed-dose state
+  const [streak, setStreak] = useState<StreakData | null>(null)
+  const [dismissedMissed, setDismissedMissed] = useState(false)
   
   // Floating HUD top bar states
   const [scrolled, setScrolled] = useState(false)
@@ -358,11 +476,15 @@ export default function Cabinet() {
     }
     init()
   }, [user])
-
   useEffect(() => {
     const id = activeMemberId || user?.id
     if (id) {
       fetchCabinet(id)
+      // Fetch streak data in parallel — non-blocking, best-effort
+      const tzOffset = new Date().getTimezoneOffset()
+      api.get(`/medicine/streak?user_id=${id}&tz_offset=${tzOffset}`)
+        .then((res) => setStreak(res.data))
+        .catch(() => { /* streak is cosmetic — swallow errors */ })
     }
   }, [activeMemberId, user?.id, fetchCabinet])
 
@@ -405,17 +527,17 @@ export default function Cabinet() {
   // Monitor scrolling position to display sticky HUD
   useEffect(() => {
     let container: Element | null = null
+
+    const handleScroll = () => {
+      if (container) {
+        setScrolled(container.scrollTop > 180)
+      }
+    }
     
     const bindScroll = () => {
       container = document.querySelector('.page-content')
       if (container) {
         container.addEventListener('scroll', handleScroll, { passive: true })
-      }
-    }
-
-    const handleScroll = () => {
-      if (container) {
-        setScrolled(container.scrollTop > 180)
       }
     }
 
@@ -449,17 +571,47 @@ export default function Cabinet() {
     setMedicines((prev) =>
       prev.map((m) =>
         m.id === entryId
-          ? { ...m, today_logs: [...new Set([...(m.today_logs || []), slot])] }
+          ? {
+              ...m,
+              today_logs: [...new Set([...(m.today_logs || []), slot])],
+              quantity: m.quantity != null && m.quantity > 0 ? m.quantity - 1 : m.quantity
+            }
           : m
       )
     )
     showToast('✓ Dose logged!')
+
+    // ── Confetti micro-celebration ─────────────────────────────────────────
+    // Dynamically imported so it doesn't block the initial bundle.
+    // Fires a small, fast burst from the bottom-centre — feels satisfying
+    // without being distracting.
+    import('canvas-confetti').then((mod) => {
+      const confetti = mod.default
+      confetti({
+        particleCount: 45,
+        spread: 55,
+        startVelocity: 28,
+        decay: 0.88,
+        scalar: 0.85,
+        origin: { x: 0.5, y: 0.85 },
+        colors: ['#0d9488', '#14b8a6', '#5eead4', '#ffffff', '#a7f3d0'],
+      })
+    }).catch(() => { /* non-critical — ignore if blocked */ })
     // ─────────────────────────────────────────────────────────────────────
 
     try {
       await api.post('/medicine/log', { entry_id: entryId, time_slot: slot })
       // 200 = already logged (idempotent), 201 = freshly created — both are success.
       // The optimistic update is already correct; nothing else to do.
+
+      // Refresh streak silently after logging — streak counter should update
+      const id = activeMemberId || user?.id
+      if (id) {
+        const tzOffset = new Date().getTimezoneOffset()
+        api.get(`/medicine/streak?user_id=${id}&tz_offset=${tzOffset}`)
+          .then((res) => setStreak(res.data))
+          .catch(() => {})
+      }
     } catch {
       // Network / server error: roll back the optimistic update
       setMedicines((prev) =>
@@ -585,6 +737,15 @@ export default function Cabinet() {
                   }}
                   className="hover:scale-105 active:scale-95"
                 >
+                  {streak && streak.streak_days > 0 && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.76rem', color: '#ea580c', fontWeight: 700 }}>
+                      <Flame size={13} />
+                      {streak.streak_days}d
+                    </span>
+                  )}
+                  {streak && streak.streak_days > 0 && (
+                    <span style={{ width: 1.5, height: 12, backgroundColor: 'var(--border-subtle)' }} />
+                  )}
                   <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
                     Adherence: <strong style={{ color: 'var(--accent-teal)' }}>{adherencePercent}%</strong>
                   </span>
@@ -606,6 +767,93 @@ export default function Cabinet() {
                   </span>
                 </button>
               </div>
+            )}
+
+            {/* ── Streak Banner ─────────────────────────────────────────────── */}
+            {streak && streak.streak_days > 0 && (
+              <AnimatePresence>
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 24 }}
+                  style={{
+                    margin: '12px 16px 0',
+                    padding: '12px 16px',
+                    borderRadius: 'var(--radius-lg)',
+                    background: 'linear-gradient(135deg, rgba(234, 88, 12, 0.08) 0%, rgba(251, 146, 60, 0.06) 100%)',
+                    border: '1px solid rgba(234, 88, 12, 0.18)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                  }}
+                >
+                  <motion.span
+                    animate={{ scale: [1, 1.18, 1] }}
+                    transition={{ repeat: Infinity, duration: 2.2, ease: 'easeInOut' }}
+                    style={{ fontSize: 22, lineHeight: 1 }}
+                  >
+                    🔥
+                  </motion.span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 'var(--text-sm)', color: '#ea580c' }}>
+                      {streak.streak_days}-day streak!
+                    </div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: 1 }}>
+                      {streak.today_pct === 100
+                        ? 'All doses taken today — keep it up!'
+                        : `${streak.today_pct}% adherence today`}
+                    </div>
+                  </div>
+                  <Flame size={16} color="#ea580c" aria-hidden="true" />
+                </motion.div>
+              </AnimatePresence>
+            )}
+
+            {/* ── Missed Dose Banner (yesterday) ────────────────────────────── */}
+            {streak && streak.missed_yesterday.length > 0 && !dismissedMissed && (
+              <AnimatePresence>
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.22 }}
+                  style={{
+                    margin: '8px 16px 0',
+                    padding: '10px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    background: 'rgba(220, 38, 38, 0.06)',
+                    border: '1px solid rgba(220, 38, 38, 0.18)',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 10,
+                  }}
+                >
+                  <span style={{ fontSize: 16, lineHeight: '20px' }}>⚠️</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600, fontSize: 'var(--text-xs)', color: 'var(--danger-color, #dc2626)' }}>
+                      Missed yesterday
+                    </div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: 2, lineHeight: 1.4 }}>
+                      {streak.missed_yesterday.slice(0, 2).map((m, i) => (
+                        <span key={i}>
+                          {i > 0 && ', '}
+                          {m.medicine_name} ({m.slot})
+                        </span>
+                      ))}
+                      {streak.missed_yesterday.length > 2 && ` +${streak.missed_yesterday.length - 2} more`}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDismissedMissed(true)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, lineHeight: 1 }}
+                    aria-label="Dismiss missed dose alert"
+                  >
+                    <X size={14} />
+                  </button>
+                </motion.div>
+              </AnimatePresence>
             )}
 
             {totalDosesScheduled > 0 ? (
@@ -708,6 +956,7 @@ export default function Cabinet() {
                         onImageClick={setActiveLightboxImage}
                         onDelete={requestDeleteMed}
                         onEdit={setEditingMed}
+                        onOpenInfo={(name, dosage) => setInfoModalMed({ name, dosage })}
                       />
                     ))}
                   </AnimatePresence>
@@ -834,6 +1083,14 @@ export default function Cabinet() {
           }}
         />
       )}
+
+      {/* AI Medicine Info Modal */}
+      <MedicineInfoModal
+        isOpen={!!infoModalMed}
+        onClose={() => setInfoModalMed(null)}
+        medicineName={infoModalMed?.name || ''}
+        dosage={infoModalMed?.dosage}
+      />
 
       {toast && <Toast message={toast} type="success" />}
     </>

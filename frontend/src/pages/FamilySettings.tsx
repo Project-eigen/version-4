@@ -8,7 +8,7 @@ import api from '../api/client'
 import type { User, JoinRequest } from '../types'
 import Toast from '../components/Toast'
 import EmptyState from '../components/EmptyState'
-import { Users, UserPlus, Mail, Copy, Share2, RefreshCw, LogOut, Check, X } from 'lucide-react'
+import { Users, Mail, Copy, Share2, RefreshCw, LogOut, Check, X, Bell, ShieldCheck, Pencil } from 'lucide-react'
 
 export default function FamilySettings() {
   const { user, refreshUser, activeMemberId, setActiveMemberId } = useAuth()
@@ -67,6 +67,31 @@ export default function FamilySettings() {
   useEffect(() => {
     fetchFamilyData()
   }, [user, fetchFamilyData])
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search)
+    const code = searchParams.get('join_code') || searchParams.get('code')
+    if (code && code.length === 6 && /^\d+$/.test(code)) {
+      setOtp(code.split(''))
+      setShowJoinModal(true)
+      showToast('1-Tap invite link loaded! Confirm below to join.')
+    }
+  }, [])
+
+  const [editingFamilyName, setEditingFamilyName] = useState(false)
+  const [newFamilyName, setNewFamilyName] = useState('')
+
+  const handleUpdateFamilyName = async () => {
+    if (!newFamilyName.trim()) return
+    try {
+      await api.put('/family/update_name', { name: newFamilyName.trim() })
+      if (familyData) setFamilyData({ ...familyData, name: newFamilyName.trim() })
+      setEditingFamilyName(false)
+      showToast('✓ Family group name updated!', 'success')
+    } catch {
+      showToast('Failed to update family name', 'error')
+    }
+  }
 
   const handleAccept = async (reqId: number) => {
     setProcessingReqId(reqId)
@@ -203,6 +228,15 @@ export default function FamilySettings() {
     }
   }
 
+  const handleNudge = async (targetId: number, targetName: string) => {
+    try {
+      await api.post('/family/nudge', { target_user_id: targetId })
+      showToast(`✓ Gentle dose reminder sent to ${targetName}!`, 'success')
+    } catch {
+      showToast('Failed to send reminder', 'error')
+    }
+  }
+
   const copyCode = () => {
     if (!familyData?.family_code) return
     navigator.clipboard.writeText(familyData.family_code).then(() => {
@@ -216,8 +250,9 @@ export default function FamilySettings() {
 
   const shareWhatsApp = () => {
     if (!familyData?.family_code) return
+    const joinLink = `${window.location.origin}/home?join_code=${familyData.family_code}`
     const text = encodeURIComponent(
-      `Join my family group on DawaiSathi! 💊\n\nEnter this 6-digit invite code in your Family tab: *${familyData.family_code}*\n\nDownload DawaiSathi to stay on track together: https://dawaisathi.onrender.com`
+      `Join my family group on DawaiSathi v4.1! 💊\n\nClick this 1-tap link to join directly:\n${joinLink}\n\nOr enter code in app: *${familyData.family_code}*`
     )
     window.open(`https://wa.me/?text=${text}`, '_blank')
   }
@@ -228,7 +263,7 @@ export default function FamilySettings() {
 
   const inFamily = !!user?.family_id
   const isSolo = members.length <= 1
-  const isGuest = user?.email?.endsWith('@dawaisathi.com') || user?.google_id?.startsWith('guest_')
+  const isGuest = user?.email?.endsWith('@dawaisathi.com') || (user as any)?.google_id?.startsWith('guest_')
 
   // Render the Invite Code Card component used in multiple states
   const renderInviteCard = () => {
@@ -444,9 +479,56 @@ export default function FamilySettings() {
               >
                 <Users size={28} color="var(--accent-teal)" />
               </div>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
-                {familyData?.name || 'Your Family Group'}
-              </h2>
+              {editingFamilyName ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', marginBottom: 8 }}>
+                  <input
+                    type="text"
+                    value={newFamilyName}
+                    onChange={(e) => setNewFamilyName(e.target.value)}
+                    placeholder="Enter family name"
+                    style={{
+                      background: 'var(--bg-glass)',
+                      border: '1px solid var(--accent-teal)',
+                      color: 'var(--text-primary)',
+                      padding: '6px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      fontSize: '0.95rem',
+                      fontWeight: 600,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleUpdateFamilyName}
+                    style={{
+                      background: 'var(--accent-teal)',
+                      color: '#fff',
+                      border: 'none',
+                      padding: '6px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      fontSize: '0.8rem',
+                    }}
+                  >
+                    Save
+                  </button>
+                </div>
+              ) : (
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <span>{familyData?.name || 'Your Family Group'}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewFamilyName(familyData?.name || '')
+                      setEditingFamilyName(true)
+                    }}
+                    style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2 }}
+                    title="Edit family name"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                </h2>
+              )}
               <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)', lineHeight: 1.6, maxWidth: 300, margin: '0 auto' }}>
                 Your medicine cabinet is ready! Add family members to view each other's schedules and logs.
               </p>
@@ -612,8 +694,65 @@ export default function FamilySettings() {
                     </div>
                     <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{member.email}</div>
                   </div>
+
+                  {member.id !== user?.id && (
+                    <button
+                      type="button"
+                      onClick={() => handleNudge(member.id, member.name)}
+                      style={{
+                        background: 'rgba(45, 212, 191, 0.1)',
+                        border: '1px solid rgba(45, 212, 191, 0.25)',
+                        color: 'var(--accent-teal)',
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        padding: '6px 12px',
+                        borderRadius: 'var(--radius-full)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
+                      <Bell size={13} /> Remind
+                    </button>
+                  )}
                 </div>
               ))}
+            </div>
+
+            {/* Emergency & Doctor Contact Card */}
+            <div style={{ margin: '20px 16px 0', padding: 16, background: 'var(--bg-glass-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-xl)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <ShieldCheck size={16} style={{ color: 'var(--accent-teal)' }} /> Family Emergency & Caregiver Helpline
+                </div>
+              </div>
+              <p style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.4 }}>
+                Instant 1-tap emergency dial for family care coordinators and medical assistance.
+              </p>
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <a
+                  href="tel:108"
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-lg, 12px)',
+                    background: 'rgba(239, 68, 68, 0.12)',
+                    border: '1px solid rgba(239, 68, 68, 0.25)',
+                    color: '#f87171',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    textDecoration: 'none',
+                    textAlign: 'center',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                  }}
+                >
+                  🚑 Call 108 Emergency
+                </a>
+              </div>
             </div>
 
             <div style={{ padding: '32px 16px' }}>

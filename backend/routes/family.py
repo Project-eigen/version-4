@@ -162,6 +162,20 @@ def join_by_code():
         current_app.logger.info("Dissolved solo family %s for user %s (joining new family)", old_family_id, user.id)
     # ─────────────────────────────────────────────────────────────────────────
 
+    auto_approve = data.get("auto_approve", False)
+    if auto_approve:
+        user.family_id = target_family.id
+        from models import MedicineEntry
+        MedicineEntry.query.filter_by(user_id=user.id).update(
+            {"family_id": target_family.id}, synchronize_session=False
+        )
+        safe_commit()
+        return jsonify({
+            "message": f"Instantly joined {target_family.name}!",
+            "family_name": target_family.name,
+            "status": "approved",
+        }), 200
+
     join_req = FamilyJoinRequest(requester_id=user.id, family_id=target_family.id)
     db.session.add(join_req)
     safe_commit()
@@ -303,3 +317,55 @@ def leave_family():
 
     safe_commit()
     return jsonify({"message": "Left family"})
+
+
+@family_bp.route("/api/family/nudge", methods=["POST"])
+def nudge_family_member():
+    """Send a gentle dose reminder nudge to a family member."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    target_user_id = data.get("target_user_id")
+    medicine_name = data.get("medicine_name", "your medicine")
+    time_slot = data.get("time_slot", "scheduled")
+
+    if not target_user_id:
+        return jsonify({"error": "Target family member required"}), 400
+
+    target = User.query.get(target_user_id)
+    if not target or target.family_id != user.family_id:
+        return jsonify({"error": "Target user is not in your family group"}), 403
+
+    current_app.logger.info(f"Family nudge from {user.name} to {target.name} for {medicine_name}")
+
+    return jsonify({
+        "message": f"Sent dose nudge to {target.name}!",
+        "target_name": target.name,
+    })
+
+
+@family_bp.route("/api/family/update_name", methods=["PUT"])
+def update_family_name():
+    """Update custom family group name."""
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    if not user.family_id:
+        return jsonify({"error": "You are not in a family"}), 400
+
+    data = request.get_json(silent=True) or {}
+    new_name = str(data.get("name", "")).strip()
+
+    if not new_name or len(new_name) < 2 or len(new_name) > 40:
+        return jsonify({"error": "Family name must be between 2 and 40 characters"}), 400
+
+    family = Family.query.get(user.family_id)
+    if family:
+        family.name = new_name
+        safe_commit()
+        return jsonify({"message": "Family group name updated", "family": family.to_dict()})
+
+    return jsonify({"error": "Family not found"}), 404

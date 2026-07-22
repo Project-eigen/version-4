@@ -86,6 +86,37 @@
   --danger-bg: rgba(220, 38, 38, 0.08);
 }
 
+/* ===================== DARK THEME TOKENS ===================== */
+[data-theme="dark"] {
+  --bg-primary: #090d16;
+  --bg-secondary: #0f172a;
+  --bg-card: #0f172a;
+  --bg-card-hover: #1e293b;
+  --bg-surface: #1e293b;
+
+  --accent-teal: #2dd4bf;
+  --accent-teal-dark: #14b8a6;
+  --accent-teal-glow: rgba(45, 212, 191, 0.15);
+  --accent-cyan: #38bdf8;
+
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #64748b;
+
+  --border-subtle: rgba(255, 255, 255, 0.12);
+  --border-glow: rgba(45, 212, 191, 0.3);
+
+  --bg-glass: rgba(15, 23, 42, 0.85);
+  --bg-glass-card: rgba(30, 41, 59, 0.85);
+
+  color-scheme: dark;
+}
+
+[data-theme="dark"] body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
 /* ===================== BASE ===================== */
 * {
   box-sizing: border-box;
@@ -106,6 +137,11 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+[data-theme="dark"] body {
+  background: linear-gradient(180deg, #080c14 0%, #0d1527 100%);
+  color: var(--text-primary);
+}
+
 /* Mobile-first app container — centers and frames on desktop, fills screen on mobile */
 .app-shell {
   width: 100%;
@@ -118,6 +154,13 @@ body {
   position: relative;
   background: var(--bg-primary);
   box-shadow: 0 12px 48px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.02);
+}
+
+[data-theme="dark"] .app-shell {
+  background: #090d16;
+  border-left: 1px solid rgba(255, 255, 255, 0.07);
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 40px rgba(45, 212, 191, 0.06);
 }
 
 @media (max-width: 480px) {

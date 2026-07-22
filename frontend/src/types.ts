@@ -34,6 +34,7 @@ export interface MedicineEntry {
   instructions: string | null
   scan_image_url: string | null
   pack_image_url: string | null
+  quantity?: number | null
   created_at: string
   today_logs?: TimeSlot[]
 }

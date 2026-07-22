@@ -15,6 +15,9 @@ const SettingsDashboard = lazy(() => import('./pages/SettingsDashboard'))
 const Cabinet       = lazy(() => import('./pages/Cabinet'))
 const Scanner       = lazy(() => import('./pages/Scanner'))
 const ScanApproval  = lazy(() => import('./pages/ScanApproval'))
+const Onboarding    = lazy(() => import('./pages/Onboarding'))
+const Report        = lazy(() => import('./pages/Report'))
+const History       = lazy(() => import('./pages/History'))
 
 // Minimal full-screen spinner shown while a lazy chunk is being downloaded.
 // Matches the dark background so there's no flash of white (prevents CLS).
@@ -102,15 +105,18 @@ function AppRoutes() {
         <AnimatePresence mode="wait">
           <Routes location={location} key={location.pathname}>
             {/* Public */}
-            <Route path="/" element={user ? <Navigate to="/home" replace /> : <PageTransition><AuthGate /></PageTransition>} />
+            <Route path="/" element={user ? (localStorage.getItem("ds_onboarding_completed") ? <Navigate to="/home" replace /> : <Navigate to="/onboarding" replace />) : <PageTransition><AuthGate /></PageTransition>} />
             <Route path="/auth/success" element={<PageTransition><AuthSuccess /></PageTransition>} />
 
             {/* Protected */}
             <Route path="/home"        element={<ProtectedRoute><PageTransition><FamilySettings /></PageTransition></ProtectedRoute>} />
             <Route path="/settings"    element={<ProtectedRoute><PageTransition><SettingsDashboard /></PageTransition></ProtectedRoute>} />
+            <Route path="/onboarding"  element={<ProtectedRoute><PageTransition><Onboarding /></PageTransition></ProtectedRoute>} />
             <Route path="/cabinet"     element={<ProtectedRoute><PageTransition><Cabinet /></PageTransition></ProtectedRoute>} />
             <Route path="/scan"        element={<ProtectedRoute><PageTransition><Scanner /></PageTransition></ProtectedRoute>} />
             <Route path="/scan/approve" element={<ProtectedRoute><PageTransition><ScanApproval /></PageTransition></ProtectedRoute>} />
+            <Route path="/report"      element={<ProtectedRoute><PageTransition><Report /></PageTransition></ProtectedRoute>} />
+            <Route path="/history"     element={<ProtectedRoute><PageTransition><History /></PageTransition></ProtectedRoute>} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />

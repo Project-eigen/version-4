@@ -136,7 +136,7 @@ export default function BrandLogo({
               boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.8)'
             }}
           >
-            v4.0
+            v4.1
           </span>
         </span>
       </div>

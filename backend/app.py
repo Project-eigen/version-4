@@ -41,18 +41,32 @@ def create_app():
         try:
             db.create_all()
 
-            # Self-healing check: Dynamically add timezone_name column to users table if missing
+            # Self-healing check: Dynamically add missing columns to users & medicine_entries tables
             try:
                 from sqlalchemy import inspect
                 inspector = inspect(db.engine)
-                columns = [col["name"] for col in inspector.get_columns("users")]
-                if "timezone_name" not in columns:
+                user_cols = [col["name"] for col in inspector.get_columns("users")]
+                if "timezone_name" not in user_cols:
                     db.session.execute(db.text("ALTER TABLE users ADD COLUMN timezone_name VARCHAR(64);"))
                     db.session.commit()
                     app.logger.info("Successfully added missing timezone_name column to users table.")
+
+                med_cols = [col["name"] for col in inspector.get_columns("medicine_entries")]
+                if "quantity" not in med_cols:
+                    db.session.execute(db.text("ALTER TABLE medicine_entries ADD COLUMN quantity INTEGER;"))
+                    db.session.commit()
+                    app.logger.info("Successfully added missing quantity column to medicine_entries table.")
+                if "days" not in med_cols:
+                    db.session.execute(db.text("ALTER TABLE medicine_entries ADD COLUMN days INTEGER;"))
+                    db.session.commit()
+                    app.logger.info("Successfully added missing days column to medicine_entries table.")
+                if "instructions" not in med_cols:
+                    db.session.execute(db.text("ALTER TABLE medicine_entries ADD COLUMN instructions VARCHAR(256);"))
+                    db.session.commit()
+                    app.logger.info("Successfully added missing instructions column to medicine_entries table.")
             except Exception as e:
                 db.session.rollback()
-                app.logger.error(f"Error checking/adding timezone_name column: {e}")
+                app.logger.error(f"Error checking/adding DB columns: {e}")
 
             # Migrate old push subscriptions to the new table (if not already there)
             from models import User, PushSubscription

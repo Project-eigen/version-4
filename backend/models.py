@@ -137,6 +137,7 @@ class MedicineEntry(db.Model):
     instructions = db.Column(db.String(256), nullable=True)  # e.g. "After Food", "Before Breakfast"
     scan_image_url = db.Column(db.Text)  # image from scanner
     pack_image_url = db.Column(db.Text)  # image of the physical pack
+    quantity = db.Column(db.Integer, nullable=True)  # Remaining pill/tablet count
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     __table_args__ = (
@@ -172,6 +173,7 @@ class MedicineEntry(db.Model):
             "instructions": self.instructions,
             "scan_image_url": self.scan_image_url,
             "pack_image_url": self.pack_image_url,
+            "quantity": self.quantity,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -214,6 +216,40 @@ class TelegramLinkCode(db.Model):
     used = db.Column(db.Boolean, default=False)
 
     user = db.relationship("User", foreign_keys=[user_id])
+
+
+class PrescriptionScan(db.Model):
+    """Archived prescription scan records."""
+    __tablename__ = "prescription_scans"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    family_id = db.Column(db.Integer, db.ForeignKey("families.id"), nullable=True)
+    scan_image_url = db.Column(db.Text, nullable=True)
+    medicines_json = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.Index('idx_scan_user_id', 'user_id'),
+        db.Index('idx_scan_family_id', 'family_id'),
+    )
+
+    def to_dict(self):
+        medicines = []
+        if self.medicines_json:
+            try:
+                medicines = json.loads(self.medicines_json)
+            except Exception:
+                medicines = []
+
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "family_id": self.family_id,
+            "scan_image_url": self.scan_image_url,
+            "medicines": medicines,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
 
 
 class NotificationLog(db.Model):

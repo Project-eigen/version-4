@@ -44,14 +44,14 @@ def upload_image_bytes(image_bytes: bytes, folder: str = "dawaisathi") -> str:
             current_app.logger.error(f"Local file write error: {e}")
             raise CloudinaryUploadError(f"Failed to write file locally: {e}") from e
 
-    import cloudinary
-    import cloudinary.uploader
-
-    # Ensure SDK picks up env; also set explicitly if needed
-    if not os.environ.get("CLOUDINARY_URL"):
-        os.environ["CLOUDINARY_URL"] = cloudinary_url
-
     try:
+        import cloudinary
+        import cloudinary.uploader
+
+        # Ensure SDK picks up env; also set explicitly if needed
+        if not os.environ.get("CLOUDINARY_URL"):
+            os.environ["CLOUDINARY_URL"] = cloudinary_url
+
         # Parse cloudinary://key:secret@cloud for reliability
         rest = cloudinary_url.split("://", 1)[1]
         creds, cloud_name = rest.rsplit("@", 1)
@@ -67,6 +67,18 @@ def upload_image_bytes(image_bytes: bytes, folder: str = "dawaisathi") -> str:
         if not url:
             raise CloudinaryUploadError("Cloudinary returned no secure_url")
         return url
+    except (ImportError, ModuleNotFoundError):
+        if is_production():
+            raise CloudinaryUploadError("cloudinary package not installed in production")
+        current_app.logger.info("Cloudinary module not installed — using local file upload fallback.")
+        import uuid
+        filename = f"local_{uuid.uuid4().hex}.jpg"
+        upload_dir = current_app.config["UPLOAD_FOLDER"]
+        os.makedirs(upload_dir, exist_ok=True)
+        filepath = os.path.join(upload_dir, filename)
+        with open(filepath, "wb") as f:
+            f.write(image_bytes)
+        return f"/uploads/{filename}"
     except CloudinaryUploadError:
         raise
     except Exception as e:

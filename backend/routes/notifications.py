@@ -326,6 +326,7 @@ def push_subscribe():
             endpoint=endpoint,
             subscription_json=json.dumps(subscription),
         ))
+    user.push_subscription_json = json.dumps(subscription)
     safe_commit()
     return jsonify({"ok": True})
 
@@ -343,6 +344,9 @@ def push_unsubscribe():
         return jsonify({"error": "No endpoint provided — use subscribe endpoint instead"}), 400
 
     deleted = PushSubscription.query.filter_by(user_id=user.id, endpoint=endpoint).delete(synchronize_session=False)
+    remaining = PushSubscription.query.filter_by(user_id=user.id).count()
+    if remaining == 0:
+        user.push_subscription_json = None
     safe_commit()
     return jsonify({"ok": True, "deleted": deleted})
 

@@ -141,13 +141,17 @@ def google_callback():
     # Secure callback: Set HttpOnly cookie instead of URL query param
     resp = make_response(redirect(f"{frontend_url}/auth/success?new={str(is_new).lower()}"))
     secure_cookie = os.environ.get("RENDER") == "true" or current_app.config.get("ENV") == "production"
+    # Use SameSite=None on production: dawaisathi.onrender.com and dawaisathi-api.onrender.com
+    # are cross-site per the browser Public Suffix List, so Lax blocks the exchange-token cookie.
+    # SameSite=None requires Secure=True (already set on Render/HTTPS).
+    samesite_policy = "None" if secure_cookie else "Lax"
     resp.set_cookie(
         "auth_callback_token",
         token,
         max_age=60,  # 1 minute
         httponly=True,
         secure=secure_cookie,
-        samesite="Lax",
+        samesite=samesite_policy,
     )
     return resp
 
@@ -160,15 +164,16 @@ def exchange_token():
         return jsonify({"error": "No temporary auth token found", "code": "TOKEN_NOT_FOUND"}), 400
 
     resp = make_response(jsonify({"token": token}))
-    # Delete the cookie immediately
+    # Delete the cookie immediately — must use the same SameSite policy as when it was set
     secure_cookie = os.environ.get("RENDER") == "true" or current_app.config.get("ENV") == "production"
+    samesite_policy = "None" if secure_cookie else "Lax"
     resp.set_cookie(
         "auth_callback_token",
         "",
         expires=0,
         httponly=True,
         secure=secure_cookie,
-        samesite="Lax",
+        samesite=samesite_policy,
     )
     return resp
 

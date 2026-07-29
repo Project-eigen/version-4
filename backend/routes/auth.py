@@ -138,12 +138,21 @@ def google_callback():
     token = create_jwt(user.id)
     frontend_url = current_app.config["FRONTEND_URL"]
 
-    # Secure callback: Set HttpOnly cookie instead of URL query param
-    resp = make_response(redirect(f"{frontend_url}/auth/success?new={str(is_new).lower()}"))
+    # On production (Render): pass the JWT directly in the redirect URL.
+    # Cross-origin cookies between dawaisathi.onrender.com and dawaisathi-api.onrender.com
+    # are unreliable — browsers treat .onrender.com subdomains as cross-site (public suffix),
+    # and SameSite=None is increasingly blocked by privacy-focused browsers.
+    # The token is removed from the URL by AuthSuccess.tsx immediately after reading it.
     secure_cookie = os.environ.get("RENDER") == "true" or current_app.config.get("ENV") == "production"
-    # Use SameSite=None on production: dawaisathi.onrender.com and dawaisathi-api.onrender.com
-    # are cross-site per the browser Public Suffix List, so Lax blocks the exchange-token cookie.
-    # SameSite=None requires Secure=True (already set on Render/HTTPS).
+    if secure_cookie:
+        # Production: embed token in URL, cleared by frontend within milliseconds
+        resp = make_response(redirect(
+            f"{frontend_url}/auth/success?new={str(is_new).lower()}&token={token}"
+        ))
+        return resp
+
+    # Local dev: use the HttpOnly cookie approach (same-origin, no cross-site issue)
+    resp = make_response(redirect(f"{frontend_url}/auth/success?new={str(is_new).lower()}"))
     samesite_policy = "None" if secure_cookie else "Lax"
     resp.set_cookie(
         "auth_callback_token",

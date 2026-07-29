@@ -9,7 +9,21 @@ export default function AuthSuccess() {
 
   const handleSuccess = useCallback(async () => {
     try {
-      // Exchange secure HttpOnly cookie for the token to prevent URL leakage
+      // Production path: backend passes JWT directly in URL to avoid cross-origin cookie issues.
+      // (dawaisathi.onrender.com and dawaisathi-api.onrender.com are cross-site per PSL)
+      const params = new URLSearchParams(window.location.search)
+      const urlToken = params.get('token')
+
+      if (urlToken) {
+        // Remove the token from the URL immediately (security hygiene)
+        window.history.replaceState({}, '', '/auth/success')
+        localStorage.setItem('token', urlToken)
+        await refreshUser()
+        navigate('/home', { replace: true })
+        return
+      }
+
+      // Local dev fallback: exchange the HttpOnly cookie for a JWT
       const res = await api.post('/auth/exchange-token')
       const token = res.data.token
       if (token) {

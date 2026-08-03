@@ -219,11 +219,14 @@ def scan_medicine():
     scan_image_url = storage_urls[0] if storage_urls else ""
     last_error = None
 
-    # ── 1. Try OpenRouter Free Vision Model (Qwen2.5-VL 72B Instruct Free) ─────────
+    # ── 1. Try OpenRouter Vision Models ──────────────────────────────────────────
     openrouter_key = current_app.config.get("OPENROUTER_API_KEY")
     if openrouter_key:
         openrouter_models = [
             "qwen/qwen-2.5-vl-72b-instruct:free",
+            "qwen/qwen-2.5-vl-72b-instruct",
+            "google/gemini-2.0-flash-001",
+            "anthropic/claude-3.5-sonnet",
         ]
         for model_name in openrouter_models:
             try:
@@ -270,14 +273,14 @@ def scan_medicine():
 
                 return jsonify({"scan_image_url": scan_image_url, "extracted": extracted, "model_used": model_name})
             except Exception as e:
-                last_error = str(e)
+                last_error = f"OpenRouter ({model_name}): {e}"
                 current_app.logger.warning(f"OpenRouter model {model_name} failed: {e}")
 
     # ── 2. Fallback to Gemini API ────────────────────────────────────────────────
     api_key = current_app.config.get("GEMINI_API_KEY")
     if api_key:
         import time
-        candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest", "gemini-2.5-pro"]
+        candidate_models = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro", "gemini-2.0-flash-exp"]
 
         for model_name in candidate_models:
             for attempt in range(2):
@@ -314,7 +317,7 @@ def scan_medicine():
 
                     extracted["medicines"] = normalized_meds
 
-                    current_app.logger.info(f"Prescription scan successful using {model_name}")
+                    current_app.logger.info(f"Prescription scan successful using Gemini model {model_name}")
                     try:
                         scan_record = PrescriptionScan(
                             user_id=user.id,
@@ -330,15 +333,15 @@ def scan_medicine():
                     return jsonify({"scan_image_url": scan_image_url, "extracted": extracted, "model_used": model_name})
 
                 except Exception as e:
-                    last_error = str(e)
+                    last_error = f"Gemini ({model_name}): {e}"
                     current_app.logger.warning(f"Gemini model {model_name} attempt {attempt+1} failed: {e}")
-                    time.sleep(0.5)
+                    time.sleep(0.3)
 
     err_lower = last_error.lower() if last_error else ""
-    if "quota" in err_lower or "rate" in err_lower:
-        return jsonify({"error": "AI rate limit reached. Please try again in 1 minute.", "code": "GEMINI_RATE_LIMIT", "retryable": True}), 429
-    
-    return jsonify({"error": "Failed to extract medicines from image. Please ensure the prescription photo is clear and well-lit.", "code": "EXTRACTION_FAILED", "retryable": True}), 422
+    if "429" in err_lower or "resource_exhausted" in err_lower:
+        return jsonify({"error": "All AI vision models are currently busy. Please wait 30 seconds and scan again.", "code": "AI_RATE_LIMIT", "retryable": True}), 429
+
+    return jsonify({"error": f"Failed to extract medicines: {last_error or 'Image unclear'}. Please retry.", "code": "EXTRACTION_FAILED", "retryable": True}), 422
 
 
 @medicine_bp.route("/api/medicine/add", methods=["POST"])

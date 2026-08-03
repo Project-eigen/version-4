@@ -422,9 +422,10 @@ export default function Cabinet() {
   const [showVoiceSheet, setShowVoiceSheet] = useState(false)
   const { lang } = useLanguage()
 
-  const showToast = (msg: string) => {
+  const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast(msg)
-    setTimeout(() => setToast(null), 3000)
+    const duration = type === 'success' ? 1600 : type === 'error' ? 4200 : 3000
+    setTimeout(() => setToast(null), duration)
   }
 
   const fetchCabinet = useCallback(async (userId: number, isBackground = false) => {
@@ -589,7 +590,7 @@ export default function Cabinet() {
           : m
       )
     )
-    showToast('✓ Dose logged!')
+    showToast('✓ Dose logged!', 'success')
 
     // ── Confetti micro-celebration ─────────────────────────────────────────
     // Dynamically imported so it doesn't block the initial bundle.
@@ -631,7 +632,7 @@ export default function Cabinet() {
             : m
         )
       )
-      showToast('Failed to log dose — try again')
+      showToast('Failed to log dose — try again', 'error')
     } finally {
       loggingInFlight.current.delete(key)
     }
@@ -653,7 +654,7 @@ export default function Cabinet() {
     try {
       if (updatedSchedule.length === 0) {
         await api.delete(`/medicine/delete/${entryId}`)
-        showToast('Medicine deleted')
+        showToast('Medicine deleted', 'success')
         setMedicines((prev) => prev.filter((m) => m.id !== entryId))
       } else {
         const formData = new FormData()
@@ -663,12 +664,12 @@ export default function Cabinet() {
         })
         if (res.data.medicine) {
           setMedicines((prev) => prev.map((m) => (m.id === entryId ? res.data.medicine : m)))
-          showToast(`Removed from ${slot}`)
+          showToast(`Removed from ${slot}`, 'success')
         }
       }
       setDeleteTarget(null)
     } catch {
-      showToast(updatedSchedule.length === 0 ? 'Failed to delete medicine' : 'Failed to remove schedule')
+      showToast(updatedSchedule.length === 0 ? 'Failed to delete medicine' : 'Failed to remove schedule', 'error')
     } finally {
       setDeleteBusy(false)
     }
@@ -1088,8 +1089,13 @@ export default function Cabinet() {
                         } catch {}
                       }
 
-                      const SLOT_ICONS: Record<string, string> = {
-                        morning: '🌅', afternoon: '☀️', evening: '🌆', night: '🌙'
+                      // Slot icon helper for expired archive (Lucide — no emoji)
+                      const renderExpiredSlotIcon = (s: string) => {
+                        if (s === 'morning') return <Sunrise size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3, color: '#f59e0b' }} />
+                        if (s === 'afternoon') return <Sun size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3, color: '#38bdf8' }} />
+                        if (s === 'evening') return <Sunset size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3, color: '#f97316' }} />
+                        if (s === 'night') return <Moon size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3, color: '#818cf8' }} />
+                        return null
                       }
 
                       return (
@@ -1175,8 +1181,8 @@ export default function Cabinet() {
                             fontSize: '0.75rem', color: 'var(--text-muted)',
                             marginBottom: (med.schedule?.length ?? 0) > 0 ? 8 : 0,
                           }}>
-                            {med.dosage && <span>💊 {med.dosage}</span>}
-                            {med.days != null && <span>⏱ {med.days}-day course</span>}
+                            {med.dosage && <span><Pill size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3, opacity: 0.7 }} />{med.dosage}</span>}
+                            {med.days != null && <span><Clock size={10} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3, opacity: 0.7 }} />{med.days}-day course</span>}
                             {expiryStr && <span style={{ color: '#92400e', fontWeight: 600 }}>Expired {expiryStr}</span>}
                           </div>
 
@@ -1191,7 +1197,7 @@ export default function Cabinet() {
                                   border: '1px solid rgba(146, 64, 14, 0.15)',
                                   color: 'var(--text-muted)',
                                 }}>
-                                  {SLOT_ICONS[s] ?? ''} {s.charAt(0).toUpperCase() + s.slice(1)}
+                                  {renderExpiredSlotIcon(s)} {s.charAt(0).toUpperCase() + s.slice(1)}
                                 </span>
                               ))}
                             </div>

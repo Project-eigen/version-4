@@ -101,7 +101,21 @@ export default function Report() {
           api.get('/family/members').catch(() => ({ data: { members: [] } })),
         ])
 
-        setReport(reportRes.data)
+        const reportData = reportRes.data
+        // Item #11: Re-derive today's status client-side so "pending" never shows when
+        // some doses have already been taken (backend can only compute at request time).
+        const todayIso = new Date().toLocaleDateString('sv-SE') // YYYY-MM-DD in local time
+        if (reportData?.timeline) {
+          reportData.timeline = reportData.timeline.map((item: { status: string; taken: number; total: number; full_date?: string }) => {
+            if (item.full_date === todayIso && item.total > 0 && item.status === 'pending') {
+              if (item.taken === item.total) return { ...item, status: 'complete' }
+              if (item.taken > 0) return { ...item, status: 'partial' }
+            }
+            return item
+          })
+        }
+        setReport(reportData)
+
         setStreakDays(streakRes.data?.streak_days || 0)
         setFamilyMembers(membersRes.data?.members || [])
       } catch (e) {

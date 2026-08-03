@@ -192,12 +192,25 @@ export default function EmergencyCard({ open, onClose, user, medicines: initialM
                 </div>
                 <div>
                   <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Blood Group:</label>
-                  <input
-                    type="text"
+                  <select
                     value={bloodGroup}
                     onChange={(e) => setBloodGroup(e.target.value)}
-                    style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border-subtle)', background: 'var(--bg-subtle)', color: 'var(--text-primary)' }}
-                  />
+                    style={{
+                      width: '100%',
+                      padding: '7px 10px',
+                      borderRadius: 8,
+                      border: '1px solid var(--border-subtle)',
+                      background: 'var(--bg-subtle)',
+                      color: 'var(--text-primary)',
+                      fontSize: '0.9rem',
+                      fontWeight: 600,
+                      appearance: 'auto',
+                    }}
+                  >
+                    {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((bg) => (
+                      <option key={bg} value={bg}>{bg}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Known Allergies:</label>

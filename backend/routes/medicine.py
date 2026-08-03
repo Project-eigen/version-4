@@ -1,4 +1,5 @@
 import os
+import re
 import json
 from datetime import datetime, date
 from flask import Blueprint, request, jsonify, send_from_directory, current_app
@@ -100,7 +101,7 @@ def normalize_medicine_name(name: str) -> str:
     """Post-processor that standardizes Indian pharmaceutical abbreviations and strengths."""
     if not name:
         return ""
-    import re
+
     cleaned = name.strip()
 
     abbreviations = [
@@ -231,7 +232,7 @@ def scan_medicine():
         for model_name in openrouter_models:
             try:
                 raw_text = call_openrouter_vision(SCAN_PROMPT, gemini_images, model_name, openrouter_key)
-                import re
+
                 json_match = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
                 json_str = json_match.group(1).strip() if json_match else raw_text
                 extracted = json.loads(json_str)
@@ -291,7 +292,7 @@ def scan_medicine():
                     response = model.generate_content(content_payload)
                     raw_text = response.text.strip()
 
-                    import re
+
                     json_match = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
                     json_str = json_match.group(1).strip() if json_match else raw_text
                     extracted = json.loads(json_str)
@@ -415,7 +416,7 @@ Return ONLY valid JSON matching this structure:
                 if resp.ok:
                     res_data = resp.json()
                     raw_out = res_data["choices"][0]["message"]["content"]
-                    import re
+
                     m = re.search(r'(\{.*\})', raw_out, re.DOTALL)
                     if m:
                         parsed = json.loads(m.group(1))
@@ -434,7 +435,7 @@ Return ONLY valid JSON matching this structure:
                 model = genai.GenerativeModel("gemini-1.5-flash")
                 resp = model.generate_content(prompt)
                 raw_out = resp.text.strip()
-                import re
+
                 m = re.search(r'(\{.*\})', raw_out, re.DOTALL)
                 if m:
                     parsed = json.loads(m.group(1))
@@ -1152,7 +1153,7 @@ def check_interactions():
             response = model.generate_content(prompt)
             raw_text = response.text.strip()
 
-            import re
+
             json_match = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
             json_str = json_match.group(1).strip() if json_match else raw_text
 
@@ -1359,7 +1360,7 @@ def get_medicine_info():
             response = model.generate_content(prompt)
             raw_text = response.text.strip()
 
-            import re
+
             json_match = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
             json_str = json_match.group(1).strip() if json_match else raw_text
             res_obj = json.loads(json_str)

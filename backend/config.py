@@ -53,7 +53,8 @@ class Config:
         "GOOGLE_REDIRECT_URI", "http://localhost:5000/api/auth/callback"
     )
 
-    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+
     OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
     ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
     FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")

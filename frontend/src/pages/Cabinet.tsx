@@ -948,7 +948,7 @@ export default function Cabinet() {
                 ) : (
                   <>
                     <Mic size={20} />
-                    <span>{lang === 'hi' ? '🎙️ बोलकर दवा दर्ज करें (Voice Log)' : '🎙️ Voice-Guided Dose Logger'}</span>
+                    <span>{lang === 'hi' ? 'बोलकर दवा दर्ज करें' : 'Voice-Guided Dose Logger'}</span>
                   </>
                 )}
               </button>

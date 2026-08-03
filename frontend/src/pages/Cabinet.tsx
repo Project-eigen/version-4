@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import AppLayout from '../components/AppLayout'
@@ -11,7 +11,7 @@ import MedicineInfoModal from '../components/MedicineInfoModal'
 import InteractionCheckerCard from '../components/InteractionCheckerCard'
 import api, { getImageUrl } from '../api/client'
 import type { User, MedicineEntry, TimeSlot } from '../types'
-import { Pill, Archive, X, Trash2, Pencil, Clock, Sun, Sunrise, Sunset, Moon, Flame, ChevronRight, Info } from 'lucide-react'
+import { Pill, Archive, X, Trash2, Pencil, Clock, Sun, Sunrise, Sunset, Moon, Flame, ChevronRight, Info, CheckCircle2 } from 'lucide-react'
 
 const TIME_SLOTS: { key: TimeSlot; label: string; time: string }[] = [
   { key: 'morning', label: 'Morning', time: '8:00 AM' },
@@ -108,16 +108,6 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
   const [loggingState, setLoggingState] = useState<LoggingState>(
     () => getLoggingState(slotTime, isLogged)
   )
-  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [holding, setHolding] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const progressTimer = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  // Detect if user is on a touch device
-  const [isTouchDevice] = useState(() => {
-    return 'ontouchstart' in window || navigator.maxTouchPoints > 0
-  })
-
   // Swipe hint: shown on first visit, auto-dismissed after first successful swipe
   const [showSwipeHint, setShowSwipeHint] = useState(() => {
     if (typeof window === 'undefined') return false
@@ -135,44 +125,19 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
 
   const isDormant = loggingState === 'dormant'
 
-  // ── Desktop hold-to-log (unchanged for non-touch) ────────────────────────
-  const startHold = () => {
-    if (loggingState !== 'active') return
-    setHolding(true)
-    setProgress(0)
-    let p = 0
-    progressTimer.current = setInterval(() => {
-      p += 10
-      setProgress(p)
-      if (p >= 100) {
-        clearInterval(progressTimer.current!)
-      }
-    }, 40)
-    holdTimer.current = setTimeout(() => {
-      onLog(med.id, slot)
-      setHolding(false)
-      setProgress(0)
-    }, 400)
-  }
+  // ── Swipe-to-log handler (framer-motion drag slider) ──────────────────────
+  const [dragX, setDragX] = useState(0)
 
-  const cancelHold = () => {
-    if (holdTimer.current) clearTimeout(holdTimer.current)
-    if (progressTimer.current) clearInterval(progressTimer.current)
-    setHolding(false)
-    setProgress(0)
-  }
-
-  // ── Swipe-to-log handler (touch devices) ─────────────────────────────────
   const handleSwipeDragEnd = (_: unknown, info: { offset: { x: number } }) => {
     if (loggingState !== 'active') return
     if (info.offset.x >= SWIPE_THRESHOLD) {
-      // Dismiss the hint permanently on first successful swipe
       if (showSwipeHint) {
         setShowSwipeHint(false)
         localStorage.setItem(SWIPE_HINT_KEY, '1')
       }
       onLog(med.id, slot)
     }
+    setDragX(0)
   }
 
   const handleThumbClick = () => {
@@ -181,92 +146,126 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
     }
   }
 
-  // Build hold-log-bar label based on state
-  let barLabel: React.ReactNode
-  if (loggingState === 'logged') {
-    barLabel = t('doseLogged')
-  } else if (loggingState === 'dormant') {
-    barLabel = (
-      <>
-        <Clock size={13} style={{ marginRight: 6, opacity: 0.7 }} aria-hidden="true" />
-        {t('availableAt')} {formatSlotTime(slotTime)}
-      </>
-    )
-  } else {
-    barLabel = isTouchDevice ? (
-      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {showSwipeHint && (
-          <motion.span
-            animate={{ x: [0, 6, 0] }}
-            transition={{ repeat: Infinity, duration: 1.2, ease: 'easeInOut' }}
-            style={{ display: 'flex', alignItems: 'center', opacity: 0.65 }}
-          >
-            <ChevronRight size={15} />
-            <ChevronRight size={15} style={{ marginLeft: -8 }} />
-          </motion.span>
-        )}
-        {t('swipeToLog')}
-      </span>
-    ) : t('clickToLog')
-  }
+  // Senior Dev Interactive Swipe Bar Component
+  const logBar = (
+    <div
+      className={`hold-log-bar ${loggingState}`}
+      style={{
+        position: 'relative',
+        overflow: 'hidden',
+        userSelect: 'none',
+        padding: 0,
+        height: 48,
+        borderRadius: 24,
+        background:
+          loggingState === 'logged'
+            ? 'rgba(45, 212, 191, 0.16)'
+            : loggingState === 'dormant'
+            ? 'var(--bg-subtle)'
+            : 'rgba(15, 23, 42, 0.6)',
+        border:
+          loggingState === 'logged'
+            ? '1px solid rgba(45, 212, 191, 0.4)'
+            : loggingState === 'dormant'
+            ? '1px solid var(--border-subtle)'
+            : '1px solid rgba(45, 212, 191, 0.3)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+      onClick={loggingState === 'active' ? () => onLog(med.id, slot) : undefined}
+    >
+      {/* Dynamic Drag Fill Background */}
+      {loggingState === 'active' && (
+        <motion.div
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: Math.max(0, dragX + 48),
+            background: 'linear-gradient(90deg, rgba(45, 212, 191, 0.35) 0%, rgba(13, 148, 136, 0.75) 100%)',
+            borderRadius: 24,
+            pointerEvents: 'none',
+          }}
+        />
+      )}
 
-  // ── Touch: swipe-to-log via framer-motion drag ────────────────────────────
-  // ── Desktop: hold/click via motion.button ────────────────────────────────
-  const logBar = isTouchDevice ? (
-    <motion.button
-      drag={loggingState === 'active' ? 'x' : false}
-      dragConstraints={{ left: 0, right: 100 }}
-      dragElastic={0.15}
-      onDragEnd={handleSwipeDragEnd}
-      whileDrag={{ scale: 1.01 }}
-      className={`hold-log-bar ${loggingState}`}
-      style={
-        loggingState === 'active'
-          ? { cursor: 'grab', touchAction: 'pan-y' }
-          : undefined
-      }
-      disabled={isDormant}
-      aria-label={
-        loggingState === 'logged'
-          ? 'Dose already logged'
-          : loggingState === 'dormant'
-          ? `Not available yet. Opens at ${formatSlotTime(slotTime)}`
-          : 'Swipe right to log dose'
-      }
-      id={`log-btn-${med.id}-${slot}`}
-      type="button"
-    >
-      {barLabel}
-    </motion.button>
-  ) : (
-    <motion.button
-      whileTap={isDormant || loggingState === 'logged' ? undefined : { scale: 0.97 }}
-      className={`hold-log-bar ${loggingState}`}
-      onMouseDown={isDormant || loggingState === 'logged' ? undefined : startHold}
-      onMouseUp={isDormant || loggingState === 'logged' ? undefined : cancelHold}
-      onMouseLeave={isDormant || loggingState === 'logged' ? undefined : cancelHold}
-      onClick={isDormant || loggingState === 'logged' ? undefined : () => onLog(med.id, slot)}
-      style={
-        holding && loggingState === 'active'
-          ? {
-              background: `linear-gradient(to right, var(--logged-color) ${progress}%, #dc2626 ${progress}%)`,
-              color: 'white',
-            }
-          : undefined
-      }
-      disabled={isDormant}
-      aria-label={
-        loggingState === 'logged'
-          ? 'Dose already logged'
-          : loggingState === 'dormant'
-          ? `Not available yet. Opens at ${formatSlotTime(slotTime)}`
-          : 'Click to log dose'
-      }
-      id={`log-btn-${med.id}-${slot}`}
-      type="button"
-    >
-      {barLabel}
-    </motion.button>
+      {/* Center Label Text */}
+      <div
+        style={{
+          position: 'relative',
+          zIndex: 2,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          fontWeight: 700,
+          fontSize: '0.84rem',
+          color:
+            loggingState === 'logged'
+              ? 'var(--accent-teal, #2dd4bf)'
+              : loggingState === 'dormant'
+              ? 'var(--text-muted)'
+              : '#ffffff',
+          pointerEvents: 'none',
+        }}
+      >
+        {loggingState === 'logged' ? (
+          <>
+            <CheckCircle2 size={18} color="#2dd4bf" />
+            <span>{t('doseLogged')}</span>
+          </>
+        ) : loggingState === 'dormant' ? (
+          <>
+            <Clock size={15} opacity={0.7} />
+            <span>{t('availableAt')} {formatSlotTime(slotTime)}</span>
+          </>
+        ) : (
+          <>
+            <span style={{ letterSpacing: '0.2px' }}>{t('swipeToLog')}</span>
+            <motion.span
+              animate={{ x: [0, 5, 0] }}
+              transition={{ repeat: Infinity, duration: 1.2, ease: 'easeInOut' }}
+              style={{ display: 'inline-flex', alignItems: 'center', opacity: 0.8 }}
+            >
+              <ChevronRight size={16} />
+              <ChevronRight size={16} style={{ marginLeft: -10 }} />
+            </motion.span>
+          </>
+        )}
+      </div>
+
+      {/* Draggable Slider Thumb Button */}
+      {loggingState === 'active' && (
+        <motion.div
+          drag="x"
+          dragConstraints={{ left: 0, right: 140 }}
+          dragElastic={0.1}
+          dragMomentum={false}
+          onDrag={(_, info) => setDragX(info.offset.x)}
+          onDragEnd={handleSwipeDragEnd}
+          style={{
+            position: 'absolute',
+            left: 4,
+            width: 40,
+            height: 40,
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, var(--accent-teal) 0%, #0d9488 100%)',
+            boxShadow: '0 2px 10px rgba(13, 148, 136, 0.4), 0 0 0 2px rgba(255, 255, 255, 0.2)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#ffffff',
+            cursor: 'grab',
+            zIndex: 5,
+            touchAction: 'pan-y',
+          }}
+          whileTap={{ scale: 1.08 }}
+        >
+          <ChevronRight size={20} strokeWidth={2.5} />
+        </motion.div>
+      )}
+    </div>
   )
 
   return (

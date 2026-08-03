@@ -224,6 +224,7 @@ def scan_medicine():
     openrouter_key = current_app.config.get("OPENROUTER_API_KEY")
     if openrouter_key:
         openrouter_models = [
+            "qwen/qwen-2.5-vl-72b-instruct:free",
             "qwen/qwen-2.5-vl-72b-instruct",
             "anthropic/claude-3.5-sonnet",
         ]

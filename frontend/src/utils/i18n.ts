@@ -1,3 +1,5 @@
+import { useState, useEffect } from 'react'
+
 /**
  * i18n.ts — DawaiSathi translation system
  *
@@ -230,9 +232,6 @@ export function t(key: string, lang?: Language): string {
  * Kept for backwards-compatibility with SettingsDashboard until it's migrated.
  */
 export function useLanguage() {
-  // Dynamically import to avoid circular dep at module level
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { useState, useEffect } = require('react')
   const [lang, setLangState] = useState<Language>(getStoredLanguage)
   useEffect(() => {
     const h = () => setLangState(getStoredLanguage())

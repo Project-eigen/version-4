@@ -918,7 +918,7 @@ export default function Cabinet() {
               </div>
             )}
 
-            {TIME_SLOTS.map(({ key, label, time }) => {
+            {TIME_SLOTS.map(({ key, time }) => {
               const meds = medicinesBySlot(key)
               if (meds.length === 0) return null
 

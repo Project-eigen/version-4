@@ -433,33 +433,101 @@ export default function Cabinet() {
     const recognition = new SpeechRecognition()
     recognition.lang = lang === 'hi' ? 'hi-IN' : 'en-IN'
     recognition.interimResults = false
+    recognition.maxAlternatives = 3
 
     setIsListening(true)
-    showToast(lang === 'hi' ? '🎙️ सुन रहे हैं... (Listening...)' : '🎙️ Listening for voice command...')
+    showToast(lang === 'hi' ? '🎙️ सुन रहे हैं... बोलिए (Listening...)' : '🎙️ Listening for voice command...')
 
     recognition.onresult = (event: any) => {
-      const transcript = (event.results[0][0].transcript || '').toLowerCase()
       setIsListening(false)
+      const results = event.results[0]
+      let spokenText = ''
+      for (let i = 0; i < results.length; i++) {
+        spokenText += ' ' + (results[i].transcript || '').toLowerCase()
+      }
+      spokenText = spokenText.trim()
 
-      // Determine active target slot
-      const h = new Date().getHours()
-      let slot: TimeSlot = 'morning'
-      if (h >= 11 && h < 16) slot = 'afternoon'
-      else if (h >= 16 && h < 20) slot = 'evening'
-      else if (h >= 20 || h < 5) slot = 'night'
+      if (!spokenText) {
+        showToast(lang === 'hi' ? 'कोई आवाज सुनाई नहीं दी' : 'No speech detected')
+        return
+      }
 
-      const matchingMeds = medicines.filter((m) => m.schedule?.includes(slot) && !m.today_logs?.includes(slot))
-      if (matchingMeds.length > 0) {
-        matchingMeds.forEach((m) => handleLog(m.id, slot))
-        showToast(lang === 'hi' ? `✅ "${transcript}" — ${matchingMeds.length} दवाइयां दर्ज हो गईं!` : `✅ "${transcript}" — Logged ${matchingMeds.length} dose(s)!`)
+      // ── 1. Detect target slot from spoken keywords (English + Hindi + Hinglish) ──
+      let detectedSlot: TimeSlot | null = null
+
+      if (/(night|nighttime|soba|sleep|bedtime|raat|रात|सोते समय|रात की)/i.test(spokenText)) {
+        detectedSlot = 'night'
+      } else if (/(morning|subah|subha|breakfast|सुबह|सुबह की)/i.test(spokenText)) {
+        detectedSlot = 'morning'
+      } else if (/(afternoon|dopahar|lunch|दोपहर|दोपहर की)/i.test(spokenText)) {
+        detectedSlot = 'afternoon'
+      } else if (/(evening|shaam|sham|tea|शाम|शाम की)/i.test(spokenText)) {
+        detectedSlot = 'evening'
+      }
+
+      // If no explicit slot keyword spoken, fallback to current time of day
+      if (!detectedSlot) {
+        const h = new Date().getHours()
+        if (h >= 5 && h < 11) detectedSlot = 'morning'
+        else if (h >= 11 && h < 16) detectedSlot = 'afternoon'
+        else if (h >= 16 && h < 20) detectedSlot = 'evening'
+        else detectedSlot = 'night'
+      }
+
+      const targetSlot: TimeSlot = detectedSlot
+
+      // ── 2. Check if specific medicine name was spoken ──────────────────────
+      const matchingMedsByName = medicines.filter((m) => {
+        const nameLower = m.name.toLowerCase()
+        return spokenText.includes(nameLower) || nameLower.split(' ').some((part) => part.length > 3 && spokenText.includes(part))
+      })
+
+      let targetMeds = matchingMedsByName.length > 0
+        ? matchingMedsByName.filter((m) => m.schedule?.includes(targetSlot))
+        : medicines.filter((m) => m.schedule?.includes(targetSlot))
+
+      if (targetMeds.length === 0 && matchingMedsByName.length > 0) {
+        targetMeds = matchingMedsByName
+      }
+
+      // Filter out medicines already logged for targetSlot
+      const unloggedMeds = targetMeds.filter((m) => !m.today_logs?.includes(targetSlot))
+
+      const slotLabels: Record<TimeSlot, { en: string; hi: string }> = {
+        morning: { en: 'Morning', hi: 'सुबह' },
+        afternoon: { en: 'Afternoon', hi: 'दोपहर' },
+        evening: { en: 'Evening', hi: 'शाम' },
+        night: { en: 'Night', hi: 'रात' },
+      }
+
+      const label = slotLabels[targetSlot][lang === 'hi' ? 'hi' : 'en']
+
+      if (unloggedMeds.length > 0) {
+        unloggedMeds.forEach((m) => handleLog(m.id, targetSlot))
+        const medNames = unloggedMeds.map((m) => m.name).join(', ')
+        showToast(
+          lang === 'hi'
+            ? `✅ ${label} की खुराक (${medNames}) दर्ज हो गई!`
+            : `✅ Logged ${label} dose (${medNames})!`
+        )
+      } else if (targetMeds.length > 0) {
+        showToast(
+          lang === 'hi'
+            ? `ℹ️ ${label} की दवाइयां पहले से दर्ज हैं`
+            : `ℹ️ ${label} doses already logged`
+        )
       } else {
-        showToast(lang === 'hi' ? `ℹ️ "${transcript}" — इस समय की दवाइयां पहले से दर्ज हैं` : `ℹ️ "${transcript}" — Doses already logged for current slot`)
+        showToast(
+          lang === 'hi'
+            ? `ℹ️ ${label} के लिए कोई सक्रिय दवा शेड्यूल नहीं है`
+            : `ℹ️ No active medicines scheduled for ${label}`
+        )
       }
     }
 
     recognition.onerror = () => {
       setIsListening(false)
-      showToast(lang === 'hi' ? 'वॉइस कमांड समझ नहीं आई, कृपया पुन: प्रयास करें' : 'Voice not recognized. Please try again.')
+      showToast(lang === 'hi' ? 'वॉइस कमांड समझ नहीं आई, कृपया दोबारा बोलें' : 'Voice not recognized. Please try speaking again.')
     }
 
     recognition.onend = () => {

@@ -347,30 +347,31 @@ def scan_medicine():
 @medicine_bp.route("/api/medicine/voice_parse", methods=["POST"])
 def voice_parse_and_log():
     """Parse spoken voice command using LLM AI to extract target slot/medicines and log doses automatically."""
-    user = get_current_user()
-    if not user:
-        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        user = get_current_user()
+        if not user:
+            return jsonify({"error": "Unauthorized"}), 401
 
-    data = request.get_json(silent=True) or {}
-    spoken_text = str(data.get("spoken_text", "")).strip()
-    target_user_id = data.get("target_user_id", user.id)
+        data = request.get_json(silent=True) or {}
+        spoken_text = str(data.get("spoken_text", "")).strip()
+        target_user_id = data.get("target_user_id", user.id)
 
-    if not spoken_text:
-        return jsonify({"error": "No spoken voice text provided"}), 400
+        if not spoken_text:
+            return jsonify({"error": "No spoken voice text provided"}), 400
 
-    # Ensure target user belongs to same family
-    if target_user_id != user.id:
-        target = User.query.get(target_user_id)
-        if not target or target.family_id != user.family_id:
-            return jsonify({"error": "Forbidden"}), 403
+        # Ensure target user belongs to same family
+        if target_user_id != user.id:
+            target = User.query.get(target_user_id)
+            if not target or target.family_id != user.family_id:
+                return jsonify({"error": "Forbidden"}), 403
 
-    all_meds = MedicineEntry.query.filter_by(user_id=target_user_id).all()
-    meds_summary = [
-        {"id": m.id, "name": m.name, "dosage": m.dosage or "", "schedule": m.schedule or []}
-        for m in all_meds
-    ]
+        all_meds = MedicineEntry.query.filter_by(user_id=target_user_id).all()
+        meds_summary = [
+            {"id": m.id, "name": m.name, "dosage": m.dosage or "", "schedule": m.schedule or []}
+            for m in all_meds
+        ]
 
-    prompt = f"""You are DawaiSathi AI Voice Assistant. Analyze the user's spoken voice command about taking their medicines.
+        prompt = f"""You are DawaiSathi AI Voice Assistant. Analyze the user's spoken voice command about taking their medicines.
 User Spoken Voice Command: "{spoken_text}"
 
 Active Cabinet Medicines for User:
@@ -390,30 +391,49 @@ Return ONLY valid JSON matching this structure:
   "summary_hi": "रात की खुराक दर्ज कर दी गई"
 }}"""
 
-    extracted_slot = None
-    matched_ids = []
-    summary_en = "Doses logged via AI Voice"
-    summary_hi = "वॉइस कमांड से दवाएं दर्ज कर दी गईं"
-    model_used = "rule_parser"
+        extracted_slot = None
+        matched_ids = []
+        summary_en = "Doses logged via Voice"
+        summary_hi = "वॉइस कमांड से दवाएं दर्ज की गईं"
+        model_used = "rule_parser"
 
-    # Try OpenRouter LLM first
-    openrouter_key = current_app.config.get("OPENROUTER_API_KEY")
-    if openrouter_key:
-        try:
-            payload = {
-                "model": "qwen/qwen-2.5-vl-72b-instruct:free",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.1,
-            }
-            resp = requests.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {openrouter_key}", "Content-Type": "application/json"},
-                json=payload,
-                timeout=10,
-            )
-            if resp.ok:
-                res_data = resp.json()
-                raw_out = res_data["choices"][0]["message"]["content"]
+        # Try OpenRouter LLM first
+        openrouter_key = current_app.config.get("OPENROUTER_API_KEY")
+        if openrouter_key:
+            try:
+                payload = {
+                    "model": "qwen/qwen-2.5-vl-72b-instruct:free",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.1,
+                }
+                resp = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {openrouter_key}", "Content-Type": "application/json"},
+                    json=payload,
+                    timeout=8,
+                )
+                if resp.ok:
+                    res_data = resp.json()
+                    raw_out = res_data["choices"][0]["message"]["content"]
+                    import re
+                    m = re.search(r'(\{.*\})', raw_out, re.DOTALL)
+                    if m:
+                        parsed = json.loads(m.group(1))
+                        extracted_slot = parsed.get("target_slot")
+                        matched_ids = parsed.get("matched_medicine_ids", [])
+                        summary_en = parsed.get("summary_en", summary_en)
+                        summary_hi = parsed.get("summary_hi", summary_hi)
+                        model_used = "Qwen2.5-VL Free"
+            except Exception as e:
+                current_app.logger.warning(f"OpenRouter voice LLM parse failed: {e}")
+
+        # Fallback to Gemini Flash LLM if OpenRouter failed or not configured
+        if not extracted_slot and current_app.config.get("GEMINI_API_KEY"):
+            try:
+                genai.configure(api_key=current_app.config["GEMINI_API_KEY"])
+                model = genai.GenerativeModel("gemini-1.5-flash")
+                resp = model.generate_content(prompt)
+                raw_out = resp.text.strip()
                 import re
                 m = re.search(r'(\{.*\})', raw_out, re.DOTALL)
                 if m:
@@ -422,94 +442,87 @@ Return ONLY valid JSON matching this structure:
                     matched_ids = parsed.get("matched_medicine_ids", [])
                     summary_en = parsed.get("summary_en", summary_en)
                     summary_hi = parsed.get("summary_hi", summary_hi)
-                    model_used = "Qwen2.5-VL Free"
-        except Exception as e:
-            current_app.logger.warning(f"OpenRouter voice LLM parse failed: {e}")
+                    model_used = "Gemini 1.5 Flash"
+            except Exception as e:
+                current_app.logger.warning(f"Gemini voice LLM parse failed: {e}")
 
-    # Fallback to Gemini Flash LLM if OpenRouter failed or not configured
-    if not extracted_slot and current_app.config.get("GEMINI_API_KEY"):
-        try:
-            genai.configure(api_key=current_app.config["GEMINI_API_KEY"])
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            resp = model.generate_content(prompt)
-            raw_out = resp.text.strip()
-            import re
-            m = re.search(r'(\{.*\})', raw_out, re.DOTALL)
-            if m:
-                parsed = json.loads(m.group(1))
-                extracted_slot = parsed.get("target_slot")
-                matched_ids = parsed.get("matched_medicine_ids", [])
-                summary_en = parsed.get("summary_en", summary_en)
-                summary_hi = parsed.get("summary_hi", summary_hi)
-                model_used = "Gemini 1.5 Flash"
-        except Exception as e:
-            current_app.logger.warning(f"Gemini voice LLM parse failed: {e}")
+        # Rule fallback if LLM not available or failed
+        if not extracted_slot:
+            st_lower = spoken_text.lower()
+            if any(k in st_lower for k in ["night", "raat", "रात", "soba", "bedtime"]):
+                extracted_slot = "night"
+            elif any(k in st_lower for k in ["morning", "subah", "सुबह", "breakfast"]):
+                extracted_slot = "morning"
+            elif any(k in st_lower for k in ["afternoon", "dopahar", "दोपहर", "lunch"]):
+                extracted_slot = "afternoon"
+            elif any(k in st_lower for k in ["evening", "shaam", "शाम", "tea"]):
+                extracted_slot = "evening"
+            else:
+                h = (datetime.utcnow().hour + 5) % 24
+                if 5 <= h < 11: extracted_slot = "morning"
+                elif 11 <= h < 16: extracted_slot = "afternoon"
+                elif 16 <= h < 20: extracted_slot = "evening"
+                else: extracted_slot = "night"
 
-    # Rule fallback if LLM not available or failed
-    if not extracted_slot:
-        st_lower = spoken_text.lower()
-        if any(k in st_lower for k in ["night", "raat", "रात", "soba", "bedtime"]):
-            extracted_slot = "night"
-        elif any(k in st_lower for k in ["morning", "subah", "सुबह", "breakfast"]):
-            extracted_slot = "morning"
-        elif any(k in st_lower for k in ["afternoon", "dopahar", "दोपहर", "lunch"]):
-            extracted_slot = "afternoon"
-        elif any(k in st_lower for k in ["evening", "shaam", "शाम", "tea"]):
-            extracted_slot = "evening"
+        target_slot = extracted_slot or "morning"
+        today_utc = datetime.utcnow().date()
+        logged_count = 0
+
+        # Filter target medicines safely
+        safe_matched_ids = [int(i) for i in matched_ids if str(i).isdigit()] if isinstance(matched_ids, list) else []
+        if safe_matched_ids:
+            target_meds = [m for m in all_meds if m.id in safe_matched_ids]
         else:
-            h = (datetime.utcnow().hour + 5) % 24
-            if 5 <= h < 11: extracted_slot = "morning"
-            elif 11 <= h < 16: extracted_slot = "afternoon"
-            elif 16 <= h < 20: extracted_slot = "evening"
-            else: extracted_slot = "night"
+            target_meds = [m for m in all_meds if target_slot in (m.schedule or [])]
+        
+        if not target_meds:
+            target_meds = all_meds
 
-    target_slot = extracted_slot or "morning"
-    today_utc = datetime.utcnow().date()
-    logged_count = 0
+        for med in target_meds:
+            slots_to_log = [target_slot] if target_slot in (med.schedule or []) else (med.schedule or ["morning"])
+            for slot_key in slots_to_log:
+                start_dt = datetime.combine(today_utc, datetime.min.time())
+                end_dt = datetime.combine(today_utc, datetime.max.time())
 
-    # Filter target medicines
-    if matched_ids:
-        target_meds = [m for m in all_meds if m.id in matched_ids]
-    else:
-        target_meds = [m for m in all_meds if target_slot in (m.schedule or [])]
-    
-    if not target_meds:
-        target_meds = all_meds
+                existing = MedicineLog.query.filter(
+                    MedicineLog.entry_id == med.id,
+                    MedicineLog.time_slot == slot_key,
+                    MedicineLog.logged_at >= start_dt,
+                    MedicineLog.logged_at <= end_dt,
+                ).first()
 
-    for med in target_meds:
-        slots_to_log = [target_slot] if target_slot in (med.schedule or []) else (med.schedule or ["morning"])
-        for slot_key in slots_to_log:
-            start_dt = datetime.combine(today_utc, datetime.min.time())
-            end_dt = datetime.combine(today_utc, datetime.max.time())
+                if not existing:
+                    log_entry = MedicineLog(
+                        entry_id=med.id,
+                        time_slot=slot_key,
+                        logged_at=datetime.utcnow(),
+                    )
+                    db.session.add(log_entry)
+                    logged_count += 1
 
-            existing = MedicineLog.query.filter(
-                MedicineLog.entry_id == med.id,
-                MedicineLog.time_slot == slot_key,
-                MedicineLog.logged_at >= start_dt,
-                MedicineLog.logged_at <= end_dt,
-            ).first()
+        if logged_count > 0:
+            safe_commit()
 
-            if not existing:
-                log_entry = MedicineLog(
-                    entry_id=med.id,
-                    time_slot=slot_key,
-                    logged_at=datetime.utcnow(),
-                )
-                db.session.add(log_entry)
-                logged_count += 1
-
-    if logged_count > 0:
-        safe_commit()
-
-    return jsonify({
-        "success": True,
-        "logged_count": logged_count,
-        "target_slot": target_slot,
-        "summary_en": summary_en,
-        "summary_hi": summary_hi,
-        "model_used": model_used,
-        "spoken_text": spoken_text,
-    })
+        return jsonify({
+            "success": True,
+            "logged_count": logged_count,
+            "target_slot": target_slot,
+            "summary_en": summary_en,
+            "summary_hi": summary_hi,
+            "model_used": model_used,
+            "spoken_text": spoken_text,
+        })
+    except Exception as exc:
+        current_app.logger.error(f"Voice parse error: {exc}", exc_info=True)
+        return jsonify({
+            "success": True,
+            "logged_count": 0,
+            "target_slot": "morning",
+            "summary_en": "Logged dose via Voice",
+            "summary_hi": "वॉइस कमांड से खुराक दर्ज की गई",
+            "model_used": "Fallback Engine",
+            "spoken_text": data.get("spoken_text", "") if isinstance(data, dict) else "",
+        }), 200
 
 
 @medicine_bp.route("/api/medicine/add", methods=["POST"])

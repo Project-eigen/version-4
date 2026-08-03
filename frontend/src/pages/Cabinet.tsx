@@ -9,9 +9,10 @@ import EmptyState from '../components/EmptyState'
 import EditMedicineModal from '../components/EditMedicineModal'
 import MedicineInfoModal from '../components/MedicineInfoModal'
 import InteractionCheckerCard from '../components/InteractionCheckerCard'
+import VoiceLoggerSheet from '../components/VoiceLoggerSheet'
 import api, { getImageUrl } from '../api/client'
 import type { User, MedicineEntry, TimeSlot } from '../types'
-import { Pill, Archive, X, Trash2, Pencil, Clock, Sun, Sunrise, Sunset, Moon, Flame, ChevronRight, Info, CheckCircle2, Mic, MicOff } from 'lucide-react'
+import { Pill, Archive, X, Trash2, Pencil, Clock, Sun, Sunrise, Sunset, Moon, Flame, ChevronRight, Info, CheckCircle2, Mic } from 'lucide-react'
 
 const TIME_SLOTS: { key: TimeSlot; label: string; time: string }[] = [
   { key: 'morning', label: 'Morning', time: '8:00 AM' },
@@ -418,124 +419,8 @@ export default function Cabinet() {
   // Floating HUD top bar & Voice states
   const [scrolled, setScrolled] = useState(false)
   const [safetySeverity, setSafetySeverity] = useState<'safe' | 'moderate' | 'severe' | null>(null)
-  const [isListening, setIsListening] = useState(false)
+  const [showVoiceSheet, setShowVoiceSheet] = useState(false)
   const { lang } = useLanguage()
-
-  const startVoiceLogging = () => {
-    const SpeechRecognition = (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).SpeechRecognition ||
-      (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).webkitSpeechRecognition
-
-    if (!SpeechRecognition) {
-      showToast(lang === 'hi' ? 'आपका ब्राउज़र वॉइस सपोर्ट नहीं करता' : 'Voice recognition not supported on this browser')
-      return
-    }
-
-    const recognition = new SpeechRecognition()
-    recognition.lang = lang === 'hi' ? 'hi-IN' : 'en-IN'
-    recognition.interimResults = false
-    recognition.maxAlternatives = 3
-
-    setIsListening(true)
-    showToast(lang === 'hi' ? '🎙️ सुन रहे हैं... बोलिए (Listening...)' : '🎙️ Listening for voice command...')
-
-    recognition.onresult = (event: any) => {
-      setIsListening(false)
-      const results = event.results[0]
-      let spokenText = ''
-      for (let i = 0; i < results.length; i++) {
-        spokenText += ' ' + (results[i].transcript || '').toLowerCase()
-      }
-      spokenText = spokenText.trim()
-
-      if (!spokenText) {
-        showToast(lang === 'hi' ? 'कोई आवाज सुनाई नहीं दी' : 'No speech detected')
-        return
-      }
-
-      // ── 1. Detect target slot from spoken keywords (English + Hindi + Hinglish) ──
-      let detectedSlot: TimeSlot | null = null
-
-      if (/(night|nighttime|soba|sleep|bedtime|raat|रात|सोते समय|रात की)/i.test(spokenText)) {
-        detectedSlot = 'night'
-      } else if (/(morning|subah|subha|breakfast|सुबह|सुबह की)/i.test(spokenText)) {
-        detectedSlot = 'morning'
-      } else if (/(afternoon|dopahar|lunch|दोपहर|दोपहर की)/i.test(spokenText)) {
-        detectedSlot = 'afternoon'
-      } else if (/(evening|shaam|sham|tea|शाम|शाम की)/i.test(spokenText)) {
-        detectedSlot = 'evening'
-      }
-
-      // If no explicit slot keyword spoken, fallback to current time of day
-      if (!detectedSlot) {
-        const h = new Date().getHours()
-        if (h >= 5 && h < 11) detectedSlot = 'morning'
-        else if (h >= 11 && h < 16) detectedSlot = 'afternoon'
-        else if (h >= 16 && h < 20) detectedSlot = 'evening'
-        else detectedSlot = 'night'
-      }
-
-      const targetSlot: TimeSlot = detectedSlot
-
-      // ── 2. Check if specific medicine name was spoken ──────────────────────
-      const matchingMedsByName = medicines.filter((m) => {
-        const nameLower = m.name.toLowerCase()
-        return spokenText.includes(nameLower) || nameLower.split(' ').some((part) => part.length > 3 && spokenText.includes(part))
-      })
-
-      let targetMeds = matchingMedsByName.length > 0
-        ? matchingMedsByName.filter((m) => m.schedule?.includes(targetSlot))
-        : medicines.filter((m) => m.schedule?.includes(targetSlot))
-
-      if (targetMeds.length === 0 && matchingMedsByName.length > 0) {
-        targetMeds = matchingMedsByName
-      }
-
-      // Filter out medicines already logged for targetSlot
-      const unloggedMeds = targetMeds.filter((m) => !m.today_logs?.includes(targetSlot))
-
-      const slotLabels: Record<TimeSlot, { en: string; hi: string }> = {
-        morning: { en: 'Morning', hi: 'सुबह' },
-        afternoon: { en: 'Afternoon', hi: 'दोपहर' },
-        evening: { en: 'Evening', hi: 'शाम' },
-        night: { en: 'Night', hi: 'रात' },
-      }
-
-      const label = slotLabels[targetSlot][lang === 'hi' ? 'hi' : 'en']
-
-      if (unloggedMeds.length > 0) {
-        unloggedMeds.forEach((m) => handleLog(m.id, targetSlot))
-        const medNames = unloggedMeds.map((m) => m.name).join(', ')
-        showToast(
-          lang === 'hi'
-            ? `✅ ${label} की खुराक (${medNames}) दर्ज हो गई!`
-            : `✅ Logged ${label} dose (${medNames})!`
-        )
-      } else if (targetMeds.length > 0) {
-        showToast(
-          lang === 'hi'
-            ? `ℹ️ ${label} की दवाइयां पहले से दर्ज हैं`
-            : `ℹ️ ${label} doses already logged`
-        )
-      } else {
-        showToast(
-          lang === 'hi'
-            ? `ℹ️ ${label} के लिए कोई सक्रिय दवा शेड्यूल नहीं है`
-            : `ℹ️ No active medicines scheduled for ${label}`
-        )
-      }
-    }
-
-    recognition.onerror = () => {
-      setIsListening(false)
-      showToast(lang === 'hi' ? 'वॉइस कमांड समझ नहीं आई, कृपया दोबारा बोलें' : 'Voice not recognized. Please try speaking again.')
-    }
-
-    recognition.onend = () => {
-      setIsListening(false)
-    }
-
-    recognition.start()
-  }
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -890,6 +775,31 @@ export default function Cabinet() {
                       }} 
                     />
                   </span>
+                  <span style={{ width: 1.5, height: 12, backgroundColor: 'var(--border-subtle)' }} />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setShowVoiceSheet(true)
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '2px 9px',
+                      borderRadius: 14,
+                      background: 'linear-gradient(135deg, rgba(45, 212, 191, 0.2) 0%, rgba(13, 148, 136, 0.35) 100%)',
+                      border: '1px solid rgba(45, 212, 191, 0.5)',
+                      color: 'var(--accent-teal, #2dd4bf)',
+                      fontWeight: 800,
+                      fontSize: '0.72rem',
+                      cursor: 'pointer',
+                      boxShadow: '0 0 8px rgba(45, 212, 191, 0.25)',
+                    }}
+                  >
+                    <Mic size={12} />
+                    <span>{lang === 'hi' ? '🎙️ वॉइस लॉग' : '🎙️ Voice Log'}</span>
+                  </button>
                 </button>
               </div>
             )}
@@ -985,8 +895,7 @@ export default function Cabinet() {
             <div style={{ padding: '10px 16px 4px' }}>
               <button
                 type="button"
-                onClick={startVoiceLogging}
-                disabled={isListening}
+                onClick={() => setShowVoiceSheet(true)}
                 style={{
                   width: '100%',
                   display: 'flex',
@@ -995,30 +904,16 @@ export default function Cabinet() {
                   gap: 10,
                   padding: '12px 18px',
                   borderRadius: 20,
-                  background: isListening
-                    ? 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)'
-                    : 'linear-gradient(135deg, rgba(45, 212, 191, 0.15) 0%, rgba(13, 148, 136, 0.25) 100%)',
-                  border: isListening ? '1px solid #dc2626' : '1px solid rgba(45, 212, 191, 0.4)',
-                  color: isListening ? '#ffffff' : 'var(--accent-teal, #2dd4bf)',
+                  background: 'linear-gradient(135deg, rgba(45, 212, 191, 0.15) 0%, rgba(13, 148, 136, 0.25) 100%)',
+                  border: '1px solid rgba(45, 212, 191, 0.4)',
+                  color: 'var(--accent-teal, #2dd4bf)',
                   fontWeight: 800,
                   fontSize: '0.88rem',
                   cursor: 'pointer',
-                  boxShadow: isListening ? '0 0 15px rgba(220, 38, 38, 0.4)' : 'none',
                 }}
               >
-                {isListening ? (
-                  <>
-                    <motion.span animate={{ scale: [1, 1.3, 1] }} transition={{ repeat: Infinity, duration: 1 }}>
-                      <MicOff size={20} color="#fff" />
-                    </motion.span>
-                    <span>{lang === 'hi' ? 'सुन रहे हैं... (Listening)' : 'Listening for voice command...'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Mic size={20} />
-                    <span>{lang === 'hi' ? 'बोलकर दवा दर्ज करें' : 'Voice-Guided Dose Logger'}</span>
-                  </>
-                )}
+                <Mic size={20} />
+                <span>{lang === 'hi' ? 'बोलकर दवा दर्ज करें' : 'Voice-Guided Dose Logger'}</span>
               </button>
             </div>
 
@@ -1366,6 +1261,14 @@ export default function Cabinet() {
         onClose={() => setInfoModalMed(null)}
         medicineName={infoModalMed?.name || ''}
         dosage={infoModalMed?.dosage}
+      />
+
+      {/* AI Voice Logger Sheet */}
+      <VoiceLoggerSheet
+        open={showVoiceSheet}
+        onClose={() => setShowVoiceSheet(false)}
+        targetUserId={activeMemberId || user?.id}
+        onSuccess={() => fetchCabinet(activeMemberId || user?.id || 0, true)}
       />
 
       {toast && <Toast message={toast} type="success" />}

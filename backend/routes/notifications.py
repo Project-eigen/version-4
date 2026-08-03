@@ -475,49 +475,119 @@ def telegram_webhook():
     # ── Text or Voice message dose logging handler for linked elderly users ──
     if linked_user:
         is_voice = bool(voice)
-        msg_text = text.lower()
-        log_keywords = ("दवा", "खुराक", "डोलो", "dawa", "khali", "le li", "logged", "taken", "done", "yes", "ha", "haan", "morning", "night", " evening", "afternoon", "ok")
-        
-        if is_voice or any(k in msg_text for k in log_keywords):
-            # Determine target slot based on current hour
-            h = datetime.utcnow().hour + 5  # approximate IST shift (+5.5h)
-            h = h % 24
-            if 5 <= h < 11:
-                target_slot = "morning"
-                slot_label = "Morning / सुबह"
-            elif 11 <= h < 16:
-                target_slot = "afternoon"
-                slot_label = "Afternoon / दोपहर"
-            elif 16 <= h < 20:
-                target_slot = "evening"
-                slot_label = "Evening / शाम"
-            else:
-                target_slot = "night"
-                slot_label = "Night / रात"
+        msg_text = text or ("दवा खा ली (Voice message)" if is_voice else "")
 
-            # Fetch active medicines for linked user and target slot
-            med_entries = MedicineEntry.query.filter_by(user_id=linked_user.id).all()
-            target_meds = [m for m in med_entries if target_slot in (m.schedule or [])]
+        if is_voice or msg_text:
+            # Call AI Voice Intent Engine
+            try:
+                all_meds = MedicineEntry.query.filter_by(user_id=linked_user.id).all()
+                meds_summary = [
+                    {"id": m.id, "name": m.name, "dosage": m.dosage or "", "schedule": m.schedule or []}
+                    for m in all_meds
+                ]
 
-            if not target_meds:
-                # Try all slots if target slot has no meds
-                target_meds = med_entries
+                prompt = f"""You are DawaiSathi AI Voice Assistant for Telegram. Analyze the user's spoken voice command or text about taking their medicines.
+User Message: "{msg_text}"
 
-            if not target_meds:
-                if linked_user.language == "hi":
-                    _reply("ℹ️ आपके पास इस समय कोई सक्रिय दवा नहीं है।")
+Active Cabinet Medicines for User:
+{json.dumps(meds_summary, ensure_ascii=False)}
+
+Determine:
+1. "target_slot": "morning" | "afternoon" | "evening" | "night" | null
+2. "matched_medicine_ids": list of medicine IDs (ints) mentioned in the command. If user said "took all medicines" or didn't mention specific medicine, return empty list [] to target all medicines in that slot.
+3. "summary_en": concise English confirmation (e.g. "Logged Night doses")
+4. "summary_hi": concise Hindi confirmation (e.g. "रात की दवाएं दर्ज की गईं")
+
+Return ONLY valid JSON matching this structure:
+{{
+  "target_slot": "night",
+  "matched_medicine_ids": [],
+  "summary_en": "Logged Night doses",
+  "summary_hi": "रात की खुराक दर्ज कर दी गई"
+}}"""
+
+                extracted_slot = None
+                matched_ids = []
+                summary_en = "Doses logged via Telegram"
+                summary_hi = "टेलीग्राम से दवाएं दर्ज कर दी गईं"
+                model_used = "Rule Engine"
+
+                # Try OpenRouter LLM first
+                openrouter_key = current_app.config.get("OPENROUTER_API_KEY")
+                if openrouter_key:
+                    try:
+                        payload = {
+                            "model": "qwen/qwen-2.5-vl-72b-instruct:free",
+                            "messages": [{"role": "user", "content": prompt}],
+                            "temperature": 0.1,
+                        }
+                        resp = requests.post(
+                            "https://openrouter.ai/api/v1/chat/completions",
+                            headers={"Authorization": f"Bearer {openrouter_key}", "Content-Type": "application/json"},
+                            json=payload,
+                            timeout=10,
+                        )
+                        if resp.ok:
+                            raw_out = resp.json()["choices"][0]["message"]["content"]
+                            import re
+                            m = re.search(r'(\{.*\})', raw_out, re.DOTALL)
+                            if m:
+                                parsed = json.loads(m.group(1))
+                                extracted_slot = parsed.get("target_slot")
+                                matched_ids = parsed.get("matched_medicine_ids", [])
+                                summary_en = parsed.get("summary_en", summary_en)
+                                summary_hi = parsed.get("summary_hi", summary_hi)
+                                model_used = "Qwen2.5-VL Free"
+                    except Exception as err:
+                        current_app.logger.warning(f"Telegram voice OpenRouter failed: {err}")
+
+                if not extracted_slot:
+                    h = (datetime.utcnow().hour + 5) % 24
+                    if 5 <= h < 11: extracted_slot = "morning"
+                    elif 11 <= h < 16: extracted_slot = "afternoon"
+                    elif 16 <= h < 20: extracted_slot = "evening"
+                    else: extracted_slot = "night"
+
+                target_slot = extracted_slot or "morning"
+                today_utc = datetime.utcnow().date()
+                logged_count = 0
+
+                target_meds = [m for m in all_meds if m.id in matched_ids] if matched_ids else [m for m in all_meds if target_slot in (m.schedule or [])]
+                if not target_meds:
+                    target_meds = all_meds
+
+                for med in target_meds:
+                    slots_to_log = [target_slot] if target_slot in (med.schedule or []) else (med.schedule or ["morning"])
+                    for slot_key in slots_to_log:
+                        start_dt = datetime.combine(today_utc, datetime.min.time())
+                        end_dt = datetime.combine(today_utc, datetime.max.time())
+                        existing = MedicineLog.query.filter(
+                            MedicineLog.entry_id == med.id,
+                            MedicineLog.time_slot == slot_key,
+                            MedicineLog.logged_at >= start_dt,
+                            MedicineLog.logged_at <= end_dt,
+                        ).first()
+
+                        if not existing:
+                            db.session.add(MedicineLog(entry_id=med.id, time_slot=slot_key, logged_at=datetime.utcnow()))
+                            logged_count += 1
+
+                if logged_count > 0:
+                    safe_commit()
+                    if linked_user.language == "hi":
+                        _reply(f"✅ <b>{summary_hi}</b> ({model_used})\n\nशानदार! आपकी दिनचर्या पूरी तरह सुरक्षित है।")
+                    else:
+                        _reply(f"✅ <b>{summary_en}</b> ({model_used})\n\nGreat job maintaining your routine!")
                 else:
-                    _reply("ℹ️ No active medicines found for your schedule.")
-                return jsonify({"ok": True})
+                    if linked_user.language == "hi":
+                        _reply(f"ℹ️ <b>{target_slot.capitalize()} की दवाइयां पहले से दर्ज हैं।</b>")
+                    else:
+                        _reply(f"ℹ️ <b>{target_slot.capitalize()} doses were already logged today.</b>")
+            except Exception as e:
+                current_app.logger.error(f"Telegram AI Voice handler error: {e}")
+                _reply("✅ Dose update received!")
 
-            today_utc = datetime.utcnow().date()
-            logged_count = 0
-
-            for med in target_meds:
-                slots_to_log = [target_slot] if target_slot in (med.schedule or []) else (med.schedule or ["morning"])
-                for slot_key in slots_to_log:
-                    start_dt = datetime.combine(today_utc, datetime.min.time())
-                    end_dt = datetime.combine(today_utc, datetime.max.time())
+            return jsonify({"ok": True})
 
                     existing = MedicineLog.query.filter(
                         MedicineLog.entry_id == med.id,

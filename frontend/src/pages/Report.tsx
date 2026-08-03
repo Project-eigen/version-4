@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   Share2,
@@ -86,6 +86,8 @@ export default function Report() {
     setTimeout(() => setToastMsg(null), 3000)
   }
 
+  const location = useLocation()
+
   useEffect(() => {
     async function loadData() {
       setLoading(true)
@@ -110,7 +112,9 @@ export default function Report() {
     }
 
     loadData()
-  }, [activeMemberId, user?.id])
+    window.addEventListener('focus', loadData)
+    return () => window.removeEventListener('focus', loadData)
+  }, [activeMemberId, user?.id, location.key])
 
   // Calculate Tier Badge & Status Feedback
   const getAdherenceTier = (pct: number) => {

@@ -1,18 +1,20 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ShieldAlert, PhoneCall, Printer, AlertTriangle, Pill } from 'lucide-react'
 import Modal from './Modal'
 import { useLanguage } from '../context/LanguageContext'
+import api from '../api/client'
 import type { User, MedicineEntry } from '../types'
 
 interface EmergencyCardProps {
   open: boolean
   onClose: () => void
   user: User | null
-  medicines: MedicineEntry[]
+  medicines?: MedicineEntry[]
 }
 
-export default function EmergencyCard({ open, onClose, user, medicines }: EmergencyCardProps) {
+export default function EmergencyCard({ open, onClose, user, medicines: initialMedicines = [] }: EmergencyCardProps) {
   const { lang } = useLanguage()
+  const [activeMeds, setActiveMeds] = useState<MedicineEntry[]>(initialMedicines)
   const [emergencyContact, setEmergencyContact] = useState(() => {
     return localStorage.getItem(`emergency_phone_${user?.id}`) || '+91 98765 43210'
   })
@@ -23,6 +25,17 @@ export default function EmergencyCard({ open, onClose, user, medicines }: Emerge
     return localStorage.getItem(`emergency_allergies_${user?.id}`) || 'Penicillin (Mild), Dust'
   })
   const [isEditing, setIsEditing] = useState(false)
+
+  useEffect(() => {
+    if (!open || !user?.id) return
+    const tzOffset = new Date().getTimezoneOffset()
+    const localDate = new Date().toLocaleDateString('sv-SE')
+    api.get(`/medicine/cabinet?user_id=${user.id}&tz_offset=${tzOffset}&local_date=${localDate}`)
+      .then((res) => {
+        setActiveMeds(res.data?.medicines || [])
+      })
+      .catch(() => {})
+  }, [open, user?.id])
 
   const handleSaveInfo = () => {
     if (user?.id) {
@@ -206,12 +219,12 @@ export default function EmergencyCard({ open, onClose, user, medicines }: Emerge
           >
             <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
               <Pill size={15} color="var(--accent-teal)" />
-              {lang === 'hi' ? 'वर्तमान सक्रिय दवाइयां' : 'Active Prescribed Medicines'} ({medicines.length})
+              {lang === 'hi' ? 'वर्तमान सक्रिय दवाइयां' : 'Active Prescribed Medicines'} ({activeMeds.length})
             </span>
 
-            {medicines.length > 0 ? (
+            {activeMeds.length > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {medicines.map((m) => (
+                {activeMeds.map((m) => (
                   <div
                     key={m.id}
                     style={{

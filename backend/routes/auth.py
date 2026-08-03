@@ -66,103 +66,101 @@ def google_login():
 @auth_bp.route("/api/auth/callback")
 def google_callback():
     """Handle Google OAuth2 callback."""
-    code = request.args.get("code")
-    if not code:
-        return redirect(current_app.config["FRONTEND_URL"] + "/?error=no_code")
+    frontend_url = current_app.config.get("FRONTEND_URL", "http://localhost:5173")
+    try:
+        code = request.args.get("code")
+        if not code:
+            return redirect(f"{frontend_url}/?error=no_code")
 
-    # Exchange code for tokens
-    token_data = {
-        "code": code,
-        "client_id": current_app.config["GOOGLE_CLIENT_ID"],
-        "client_secret": current_app.config["GOOGLE_CLIENT_SECRET"],
-        "redirect_uri": current_app.config["GOOGLE_REDIRECT_URI"],
-        "grant_type": "authorization_code",
-    }
-    token_resp = requests.post(GOOGLE_TOKEN_URL, data=token_data)
-    if not token_resp.ok:
-        current_app.logger.error(f"Google OAuth token exchange failed: {token_resp.status_code} {token_resp.text[:200]}")
-        return redirect(current_app.config["FRONTEND_URL"] + "/?error=token_failed")
+        # Exchange code for tokens
+        token_data = {
+            "code": code,
+            "client_id": current_app.config["GOOGLE_CLIENT_ID"],
+            "client_secret": current_app.config["GOOGLE_CLIENT_SECRET"],
+            "redirect_uri": current_app.config["GOOGLE_REDIRECT_URI"],
+            "grant_type": "authorization_code",
+        }
+        token_resp = requests.post(GOOGLE_TOKEN_URL, data=token_data, timeout=10)
+        if not token_resp.ok:
+            current_app.logger.error(f"Google OAuth token exchange failed: {token_resp.status_code} {token_resp.text[:200]}")
+            return redirect(f"{frontend_url}/?error=token_failed")
 
-    access_token = token_resp.json().get("access_token")
+        access_token = token_resp.json().get("access_token")
 
-    # Fetch user info from Google
-    userinfo_resp = requests.get(
-        GOOGLE_USERINFO_URL,
-        headers={"Authorization": f"Bearer {access_token}"},
-    )
-    if not userinfo_resp.ok:
-        current_app.logger.error(f"Google OAuth userinfo failed: {userinfo_resp.status_code} {userinfo_resp.text[:200]}")
-        return redirect(current_app.config["FRONTEND_URL"] + "/?error=userinfo_failed")
-
-    info = userinfo_resp.json()
-    google_id = info["sub"]
-    name = info.get("name", "")
-    email = info.get("email", "").lower()
-    avatar_url = info.get("picture", "")
-
-    # Find or create user
-    user = User.query.filter_by(google_id=google_id).first()
-    is_new = False
-    if not user:
-        is_new = True
-        user = User(
-            google_id=google_id,
-            name=name,
-            email=email,
-            avatar_url=avatar_url,
+        # Fetch user info from Google
+        userinfo_resp = requests.get(
+            GOOGLE_USERINFO_URL,
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10,
         )
-        db.session.add(user)
-        db.session.flush()  # get user.id without committing
+        if not userinfo_resp.ok:
+            current_app.logger.error(f"Google OAuth userinfo failed: {userinfo_resp.status_code} {userinfo_resp.text[:200]}")
+            return redirect(f"{frontend_url}/?error=userinfo_failed")
 
-    # ── Auto-create solo family if needed ────────────────────────────────────
-    # New users always get a personal family. Existing users who somehow missed
-    # this step (pre-feature accounts) are also migrated on their next login.
-    # Guest accounts (google_id starts with "guest_") are excluded.
-    if not user.family_id and not google_id.startswith("guest_"):
-        from routes.family import generate_family_code
-        first_name = name.split()[0] if name else "My"
-        solo_family = Family(
-            name=f"{first_name}'s Family",
-            family_code=generate_family_code(),
+        info = userinfo_resp.json()
+        google_id = info["sub"]
+        name = info.get("name", "")
+        email = info.get("email", "").lower()
+        avatar_url = info.get("picture", "")
+
+        # Find or create user
+        user = User.query.filter_by(google_id=google_id).first()
+        is_new = False
+        if not user:
+            is_new = True
+            user = User(
+                google_id=google_id,
+                name=name,
+                email=email,
+                avatar_url=avatar_url,
+            )
+            db.session.add(user)
+            db.session.flush()  # get user.id without committing
+
+        # ── Auto-create solo family if needed ────────────────────────────────────
+        if not user.family_id and not google_id.startswith("guest_"):
+            from routes.family import generate_family_code
+            first_name = name.split()[0] if name else "My"
+            solo_family = Family(
+                name=f"{first_name}'s Family",
+                family_code=generate_family_code(),
+            )
+            db.session.add(solo_family)
+            db.session.flush()  # get solo_family.id
+            user.family_id = solo_family.id
+            current_app.logger.info(
+                "Auto-created solo family '%s' (id=%s) for user %s",
+                solo_family.name, solo_family.id, user.id,
+            )
+
+        safe_commit()
+
+        token = create_jwt(user.id)
+
+        # On production (Render): pass the JWT directly in the redirect URL.
+        secure_cookie = os.environ.get("RENDER") == "true" or current_app.config.get("ENV") == "production"
+        if secure_cookie:
+            resp = make_response(redirect(
+                f"{frontend_url}/auth/success?new={str(is_new).lower()}&token={token}"
+            ))
+            return resp
+
+        # Local dev: use the HttpOnly cookie approach
+        resp = make_response(redirect(f"{frontend_url}/auth/success?new={str(is_new).lower()}"))
+        samesite_policy = "None" if secure_cookie else "Lax"
+        resp.set_cookie(
+            "auth_callback_token",
+            token,
+            max_age=60,  # 1 minute
+            httponly=True,
+            secure=secure_cookie,
+            samesite=samesite_policy,
         )
-        db.session.add(solo_family)
-        db.session.flush()  # get solo_family.id
-        user.family_id = solo_family.id
-        current_app.logger.info(
-            "Auto-created solo family '%s' (id=%s) for user %s",
-            solo_family.name, solo_family.id, user.id,
-        )
-
-    safe_commit()
-
-    token = create_jwt(user.id)
-    frontend_url = current_app.config["FRONTEND_URL"]
-
-    # On production (Render): pass the JWT directly in the redirect URL.
-    # Cross-origin cookies between dawaisathi.onrender.com and dawaisathi-api.onrender.com
-    # are unreliable — browsers treat .onrender.com subdomains as cross-site (public suffix),
-    # and SameSite=None is increasingly blocked by privacy-focused browsers.
-    # The token is removed from the URL by AuthSuccess.tsx immediately after reading it.
-    secure_cookie = os.environ.get("RENDER") == "true" or current_app.config.get("ENV") == "production"
-    if secure_cookie:
-        # Production: embed token in URL, cleared by frontend within milliseconds
-        resp = make_response(redirect(
-            f"{frontend_url}/auth/success?new={str(is_new).lower()}&token={token}"
-        ))
         return resp
-
-    # Local dev: use the HttpOnly cookie approach (same-origin, no cross-site issue)
-    resp = make_response(redirect(f"{frontend_url}/auth/success?new={str(is_new).lower()}"))
-    samesite_policy = "None" if secure_cookie else "Lax"
-    resp.set_cookie(
-        "auth_callback_token",
-        token,
-        max_age=60,  # 1 minute
-        httponly=True,
-        secure=secure_cookie,
-        samesite=samesite_policy,
-    )
-    return resp
+    except Exception as exc:
+        db.session.rollback()
+        current_app.logger.exception("Google callback failed with exception: %s", exc)
+        return redirect(f"{frontend_url}/?error=server_error")
 
 
 @auth_bp.route("/api/auth/exchange-token", methods=["POST"])

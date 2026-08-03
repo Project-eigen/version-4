@@ -46,10 +46,34 @@ def create_app():
                 from sqlalchemy import inspect
                 inspector = inspect(db.engine)
                 user_cols = [col["name"] for col in inspector.get_columns("users")]
+                if "language" not in user_cols:
+                    db.session.execute(db.text("ALTER TABLE users ADD COLUMN language VARCHAR(10) DEFAULT 'en';"))
+                    db.session.commit()
+                    app.logger.info("Successfully added missing language column to users table.")
                 if "timezone_name" not in user_cols:
                     db.session.execute(db.text("ALTER TABLE users ADD COLUMN timezone_name VARCHAR(64);"))
                     db.session.commit()
                     app.logger.info("Successfully added missing timezone_name column to users table.")
+                if "telegram_chat_id" not in user_cols:
+                    db.session.execute(db.text("ALTER TABLE users ADD COLUMN telegram_chat_id VARCHAR(64);"))
+                    db.session.commit()
+                    app.logger.info("Successfully added missing telegram_chat_id column to users table.")
+                if "push_subscription_json" not in user_cols:
+                    db.session.execute(db.text("ALTER TABLE users ADD COLUMN push_subscription_json TEXT;"))
+                    db.session.commit()
+                    app.logger.info("Successfully added missing push_subscription_json column to users table.")
+                if "notif_slots_json" not in user_cols:
+                    db.session.execute(db.text("ALTER TABLE users ADD COLUMN notif_slots_json TEXT DEFAULT '[\"morning\",\"afternoon\",\"evening\",\"night\"]';"))
+                    db.session.commit()
+                    app.logger.info("Successfully added missing notif_slots_json column to users table.")
+                if "notif_times_json" not in user_cols:
+                    db.session.execute(db.text("ALTER TABLE users ADD COLUMN notif_times_json TEXT DEFAULT '{\"morning\":\"08:00\",\"afternoon\":\"13:00\",\"evening\":\"18:00\",\"night\":\"22:00\"}';"))
+                    db.session.commit()
+                    app.logger.info("Successfully added missing notif_times_json column to users table.")
+                if "timezone_offset" not in user_cols:
+                    db.session.execute(db.text("ALTER TABLE users ADD COLUMN timezone_offset INTEGER DEFAULT 0;"))
+                    db.session.commit()
+                    app.logger.info("Successfully added missing timezone_offset column to users table.")
 
                 med_cols = [col["name"] for col in inspector.get_columns("medicine_entries")]
                 if "quantity" not in med_cols:

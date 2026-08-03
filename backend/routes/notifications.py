@@ -862,3 +862,132 @@ def sync_notification_logs():
         ]
     })
 
+
+# ── Emergency SOS — live location broadcast ──────────────────────────────────
+
+@notifications_bp.route("/api/emergency/sos", methods=["POST"])
+def emergency_sos():
+    """
+    Broadcast a live-location SOS alert to all family members.
+
+    Accepts JSON: { lat, lng, accuracy, emergency_contact, blood_group, allergies }
+    Sends:
+      - Telegram message with Google Maps link to every family member with telegram linked
+      - Web Push notification to every family member's push subscriptions
+    Returns: { ok, telegram_sent, push_sent, recipients }
+    """
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json(silent=True) or {}
+    lat = data.get("lat")
+    lng = data.get("lng")
+    accuracy = data.get("accuracy", 0)
+    blood_group = data.get("blood_group", "Unknown")
+    allergies = data.get("allergies", "")
+    emergency_contact = data.get("emergency_contact", "")
+
+    now_str = datetime.utcnow().strftime("%d %b %Y, %H:%M UTC")
+    patient_name = user.name or "Patient"
+
+    # ── Build maps URL ────────────────────────────────────────────────────────
+    if lat is not None and lng is not None:
+        maps_url = f"https://www.google.com/maps?q={lat},{lng}"
+        location_text_en = f"Live Location (±{int(accuracy)}m): {maps_url}"
+        location_text_hi = f"लाइव लोकेशन (±{int(accuracy)}m): {maps_url}"
+    else:
+        maps_url = None
+        location_text_en = "Location unavailable (GPS not available)"
+        location_text_hi = "लोकेशन उपलब्ध नहीं है"
+
+    # ── Build message content ─────────────────────────────────────────────────
+    telegram_msg = (
+        f"<b>🚨 DAWAISATHI SOS ALERT</b>\n\n"
+        f"<b>Patient:</b> {patient_name}\n"
+        f"<b>Blood Group:</b> {blood_group}\n"
+        f"<b>Allergies:</b> {allergies or 'None listed'}\n"
+        f"<b>Emergency Contact:</b> {emergency_contact or 'Not set'}\n\n"
+        f"<b>{location_text_en}</b>\n\n"
+        f"<i>Sent via DawaiSathi at {now_str}</i>"
+    )
+
+    push_title = f"SOS — {patient_name} needs help!"
+    push_body = (
+        f"Blood: {blood_group} | {location_text_en[:80]}"
+        if maps_url else f"Blood: {blood_group} | Location unavailable"
+    )
+    push_url = maps_url or "/cabinet"
+
+    # ── Find all family members to alert ─────────────────────────────────────
+    if user.family_id:
+        family_members = User.query.filter(
+            User.family_id == user.family_id,
+            User.id != user.id,  # Don't alert the SOS sender to themselves
+        ).all()
+    else:
+        family_members = []
+
+    telegram_sent = 0
+    push_sent = 0
+    recipients = []
+
+    from notification_helpers import send_telegram_message, send_push_notification
+
+    # ── Also send to the SOS user's own Telegram (so they have the link too) ─
+    all_alert_targets = [user] + family_members
+
+    for member in all_alert_targets:
+        member_name = member.name or f"User {member.id}"
+        sent_tg = False
+        sent_push = False
+
+        # Telegram
+        if member.telegram_chat_id:
+            try:
+                ok = send_telegram_message(member.telegram_chat_id, telegram_msg)
+                if ok:
+                    telegram_sent += 1
+                    sent_tg = True
+            except Exception as e:
+                log.warning("Emergency SOS Telegram failed for user %s: %s", member.id, e)
+
+        # Web Push
+        push_subs = PushSubscription.query.filter_by(user_id=member.id).all()
+        for sub in push_subs:
+            try:
+                result = send_push_notification(
+                    sub.subscription_json,
+                    title=push_title,
+                    body=push_body,
+                    url=push_url,
+                )
+                if result is True:
+                    push_sent += 1
+                    sent_push = True
+                elif result == "expired":
+                    db.session.delete(sub)
+            except Exception as e:
+                log.warning("Emergency SOS push failed for user %s: %s", member.id, e)
+
+        if sent_tg or sent_push:
+            recipients.append(member_name)
+
+    if push_subs:
+        safe_commit()
+
+    log.info(
+        "Emergency SOS by user %s: telegram=%d push=%d recipients=%s",
+        user.id, telegram_sent, push_sent, recipients,
+    )
+
+    return jsonify({
+        "ok": True,
+        "telegram_sent": telegram_sent,
+        "push_sent": push_sent,
+        "recipients": recipients,
+        "maps_url": maps_url,
+        "patient_name": patient_name,
+    })
+
+

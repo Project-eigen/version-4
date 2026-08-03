@@ -474,16 +474,42 @@ Return ONLY valid JSON matching this structure:
             target_meds = [m for m in all_meds if m.id in safe_matched_ids]
         else:
             target_meds = [m for m in all_meds if target_slot in (m.schedule or [])]
-        
-        if not target_meds:
-            target_meds = all_meds
+
+        # Never silently log ALL medicines — if no meds match the slot, tell the user
+        no_meds_in_slot = not target_meds and not safe_matched_ids
+        if no_meds_in_slot:
+            # Build a helpful message telling user what slots ARE available
+            available_slots = list({s for m in all_meds for s in (m.schedule or [])})
+            slot_list_en = ', '.join(available_slots) if available_slots else 'none'
+            slot_list_hi = ', '.join(available_slots) if available_slots else 'कोई नहीं'
+            return jsonify({
+                "success": False,
+                "logged_count": 0,
+                "target_slot": target_slot,
+                "no_meds_in_slot": True,
+                "summary_en": f"No medicines scheduled for {target_slot}. Your medicines are in: {slot_list_en}.",
+                "summary_hi": f"{target_slot} के लिए कोई दवा नहीं है। आपकी दवाएं {slot_list_hi} में हैं।",
+                "model_used": model_used,
+                "spoken_text": spoken_text,
+            })
+
+        logged_count = 0
+        already_logged_count = 0
+        start_dt = datetime.combine(today_utc, datetime.min.time())
+        end_dt = datetime.combine(today_utc, datetime.max.time())
 
         for med in target_meds:
-            slots_to_log = [target_slot] if target_slot in (med.schedule or []) else (med.schedule or ["morning"])
-            for slot_key in slots_to_log:
-                start_dt = datetime.combine(today_utc, datetime.min.time())
-                end_dt = datetime.combine(today_utc, datetime.max.time())
+            # Only log the specific target slot — never expand to all slots for a medicine
+            if target_slot in (med.schedule or []):
+                slots_to_log = [target_slot]
+            elif safe_matched_ids:
+                # Explicitly named medicine: log all its scheduled slots
+                slots_to_log = med.schedule or []
+            else:
+                # Slot-based match only — strictly log the target slot
+                slots_to_log = [target_slot]
 
+            for slot_key in slots_to_log:
                 existing = MedicineLog.query.filter(
                     MedicineLog.entry_id == med.id,
                     MedicineLog.time_slot == slot_key,
@@ -494,18 +520,37 @@ Return ONLY valid JSON matching this structure:
                 if not existing:
                     log_entry = MedicineLog(
                         entry_id=med.id,
+                        logged_by_user_id=user.id,  # ← CRITICAL: required NOT NULL field
                         time_slot=slot_key,
                         logged_at=datetime.utcnow(),
                     )
                     db.session.add(log_entry)
                     logged_count += 1
+                else:
+                    already_logged_count += 1
 
         if logged_count > 0:
             safe_commit()
 
+        # If everything was already logged, say so
+        if logged_count == 0 and already_logged_count > 0:
+            already_msg_en = f"{target_slot.capitalize()} doses were already logged earlier."
+            already_msg_hi = f"{target_slot} की खुराक पहले से दर्ज है।"
+            return jsonify({
+                "success": True,
+                "logged_count": 0,
+                "already_logged": True,
+                "target_slot": target_slot,
+                "summary_en": already_msg_en,
+                "summary_hi": already_msg_hi,
+                "model_used": model_used,
+                "spoken_text": spoken_text,
+            })
+
         return jsonify({
             "success": True,
             "logged_count": logged_count,
+            "already_logged": False,
             "target_slot": target_slot,
             "summary_en": summary_en,
             "summary_hi": summary_hi,

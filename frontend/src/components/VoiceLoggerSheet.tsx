@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Mic, MicOff, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Mic, MicOff, Sparkles, CheckCircle2, AlertCircle, Clock, Info } from 'lucide-react'
 import Modal from './Modal'
 import { useLanguage } from '../context/LanguageContext'
 import api from '../api/client'
@@ -13,32 +13,70 @@ interface VoiceLoggerSheetProps {
   onSuccess?: () => void
 }
 
+// ── TTS helper ─────────────────────────────────────────────────────────────────
+function speak(text: string, langCode: string) {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return
+  window.speechSynthesis.cancel()
+  const utterance = new SpeechSynthesisUtterance(text)
+  utterance.lang = langCode
+  utterance.rate = 0.88
+  utterance.pitch = 1.0
+  utterance.volume = 1.0
+  window.speechSynthesis.speak(utterance)
+}
+
+type ResultState =
+  | { type: 'success'; msgEn: string; msgHi: string }
+  | { type: 'already_logged'; msgEn: string; msgHi: string }
+  | { type: 'no_meds'; msgEn: string; msgHi: string }
+  | { type: 'error'; msg: string }
+
 export default function VoiceLoggerSheet({ open, onClose, targetUserId, onSuccess }: VoiceLoggerSheetProps) {
   const { lang } = useLanguage()
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [resultMsg, setResultMsg] = useState<string | null>(null)
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [result, setResult] = useState<ResultState | null>(null)
+  const [autoSubmitCountdown, setAutoSubmitCountdown] = useState<number | null>(null)
+  const transcriptRef = useRef('')
+  const autoSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     if (open) {
       setTranscript('')
-      setResultMsg(null)
-      setErrorMsg(null)
+      transcriptRef.current = ''
+      setResult(null)
+      setAutoSubmitCountdown(null)
       startListening()
     } else {
+      stopAutoSubmitTimer()
       setIsListening(false)
       setIsAnalyzing(false)
     }
+    return () => stopAutoSubmitTimer()
   }, [open])
 
+  function stopAutoSubmitTimer() {
+    if (autoSubmitTimerRef.current) {
+      clearTimeout(autoSubmitTimerRef.current)
+      autoSubmitTimerRef.current = null
+    }
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current)
+      countdownIntervalRef.current = null
+    }
+    setAutoSubmitCountdown(null)
+  }
+
   const startListening = () => {
-    const SpeechRecognition = (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).SpeechRecognition ||
-      (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).webkitSpeechRecognition
+    const SpeechRecognition =
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition
 
     if (!SpeechRecognition) {
-      setErrorMsg(lang === 'hi' ? 'ब्राउज़र वॉइस सपोर्ट नहीं करता' : 'Voice recognition not supported on this browser')
+      setResult({ type: 'error', msg: lang === 'hi' ? 'ब्राउज़र वॉइस सपोर्ट नहीं करता' : 'Voice recognition not supported on this browser' })
       return
     }
 
@@ -49,37 +87,58 @@ export default function VoiceLoggerSheet({ open, onClose, targetUserId, onSucces
       recognition.maxAlternatives = 3
 
       setIsListening(true)
-      setErrorMsg(null)
+      setResult(null)
+      stopAutoSubmitTimer()
 
-      recognition.onresult = (event: any) => {
-        let currentTranscript = ''
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        let current = ''
         for (let i = event.resultIndex; i < event.results.length; i++) {
-          currentTranscript += event.results[i][0].transcript
+          current += event.results[i][0].transcript
         }
-        setTranscript(currentTranscript)
+        setTranscript(current)
+        transcriptRef.current = current
       }
 
       recognition.onerror = () => {
         setIsListening(false)
-        setErrorMsg(lang === 'hi' ? 'आवाज समझ नहीं आई, कृपया पुन: प्रयास करें' : 'Voice not recognized. Please try again.')
+        setResult({ type: 'error', msg: lang === 'hi' ? 'आवाज़ समझ नहीं आई, फिर से बोलें' : 'Voice not recognized. Please try again.' })
       }
 
       recognition.onend = () => {
         setIsListening(false)
+        const finalText = transcriptRef.current.trim()
+        if (finalText) {
+          // Auto-submit after 800ms — elderly users don't need to tap confirm
+          let countdown = 2
+          setAutoSubmitCountdown(countdown)
+          countdownIntervalRef.current = setInterval(() => {
+            countdown -= 1
+            if (countdown <= 0) {
+              if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current)
+              setAutoSubmitCountdown(null)
+            } else {
+              setAutoSubmitCountdown(countdown)
+            }
+          }, 1000)
+          autoSubmitTimerRef.current = setTimeout(() => {
+            setAutoSubmitCountdown(null)
+            handleProcessVoiceText(finalText)
+          }, 800)
+        }
       }
 
       recognition.start()
-    } catch (e) {
+    } catch {
       setIsListening(false)
-      setErrorMsg(lang === 'hi' ? 'माइक्रोफोन एक्सेस एरर' : 'Microphone access error')
+      setResult({ type: 'error', msg: lang === 'hi' ? 'माइक्रोफोन एक्सेस एरर' : 'Microphone access error' })
     }
   }
 
   const handleProcessVoiceText = async (textToSend: string) => {
     if (!textToSend.trim()) return
+    stopAutoSubmitTimer()
     setIsAnalyzing(true)
-    setErrorMsg(null)
-    setResultMsg(null)
+    setResult(null)
 
     try {
       const res = await api.post('/medicine/voice_parse', {
@@ -88,19 +147,48 @@ export default function VoiceLoggerSheet({ open, onClose, targetUserId, onSucces
       })
 
       const data = res.data
-      if (data.success) {
-        const msg = lang === 'hi' ? data.summary_hi : data.summary_en
-        setResultMsg(`✅ ${msg} (${data.model_used})`)
-        confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } })
-        if (onSuccess) onSuccess()
-        setTimeout(() => {
-          onClose()
-        }, 2200)
-      } else {
-        setErrorMsg(lang === 'hi' ? 'कोई दवा दर्ज नहीं हो सकी' : 'Could not match active doses')
+      const langCode = lang === 'hi' ? 'hi-IN' : 'en-IN'
+
+      if (data.already_logged) {
+        const msgEn = data.summary_en || 'Doses were already logged earlier.'
+        const msgHi = data.summary_hi || 'खुराक पहले से दर्ज है।'
+        setResult({ type: 'already_logged', msgEn, msgHi })
+        speak(lang === 'hi' ? msgHi : msgEn, langCode)
+        setTimeout(() => onClose(), 3000)
+        return
       }
-    } catch (e: any) {
-      setErrorMsg(e.response?.data?.error || (lang === 'hi' ? 'AI प्रोसेसिंग में त्रुटि हुई' : 'AI processing failed'))
+
+      if (data.no_meds_in_slot || (!data.success && data.logged_count === 0)) {
+        const msgEn = data.summary_en || 'No medicines found for that time slot.'
+        const msgHi = data.summary_hi || 'उस समय के लिए कोई दवा नहीं मिली।'
+        setResult({ type: 'no_meds', msgEn, msgHi })
+        speak(lang === 'hi' ? msgHi : msgEn, langCode)
+        return
+      }
+
+      if (data.success && data.logged_count > 0) {
+        const msgEn = data.summary_en || `Logged ${data.target_slot} doses.`
+        const msgHi = data.summary_hi || `${data.target_slot} की खुराक दर्ज कर दी गई।`
+        setResult({ type: 'success', msgEn, msgHi })
+        speak(lang === 'hi' ? msgHi : msgEn, langCode)
+        confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 }, colors: ['#0d9488', '#14b8a6', '#5eead4', '#ffffff'] })
+        if (onSuccess) onSuccess()
+        setTimeout(() => onClose(), 2500)
+        return
+      }
+
+      // Edge: success=true but logged_count=0 (e.g. nothing new)
+      const msgEn = data.summary_en || 'Doses logged via voice.'
+      const msgHi = data.summary_hi || 'वॉइस से खुराक दर्ज की गई।'
+      setResult({ type: 'success', msgEn, msgHi })
+      speak(lang === 'hi' ? msgHi : msgEn, langCode)
+      if (onSuccess) onSuccess()
+      setTimeout(() => onClose(), 2500)
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { error?: string } } }
+      const msg = err.response?.data?.error || (lang === 'hi' ? 'AI प्रोसेसिंग में त्रुटि हुई' : 'AI processing failed. Please try again.')
+      setResult({ type: 'error', msg })
+      speak(msg, lang === 'hi' ? 'hi-IN' : 'en-IN')
     } finally {
       setIsAnalyzing(false)
     }
@@ -111,13 +199,14 @@ export default function VoiceLoggerSheet({ open, onClose, targetUserId, onSucces
   return (
     <Modal open={open} onClose={onClose} title="" variant="sheet">
       <div style={{ maxWidth: 440, margin: '0 auto', textAlign: 'center', padding: '10px 4px 20px', color: 'var(--text-primary)' }}>
+
         {/* Header Badge */}
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 20, background: 'rgba(45, 212, 191, 0.12)', color: 'var(--accent-teal)', fontSize: '0.78rem', fontWeight: 800, marginBottom: 16 }}>
           <Sparkles size={14} color="var(--accent-teal)" />
           {lang === 'hi' ? 'एआई संचालित वॉइस असिस्टेंट' : 'AI Powered Voice Logger'}
         </div>
 
-        {/* Live Animated Mic Wave */}
+        {/* Live Animated Mic */}
         <div style={{ position: 'relative', width: 84, height: 84, margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {isListening && (
             <>
@@ -157,7 +246,18 @@ export default function VoiceLoggerSheet({ open, onClose, targetUserId, onSucces
           </button>
         </div>
 
-        {/* Live Transcript Box */}
+        {/* Auto-submit countdown hint */}
+        {autoSubmitCountdown !== null && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            style={{ fontSize: '0.8rem', color: 'var(--accent-teal)', fontWeight: 700, marginBottom: 8 }}
+          >
+            {lang === 'hi' ? `${autoSubmitCountdown}s में ऑटो सबमिट...` : `Auto-submitting in ${autoSubmitCountdown}s...`}
+          </motion.div>
+        )}
+
+        {/* Live Transcript / State Box */}
         <div style={{ minHeight: 64, background: 'var(--bg-subtle)', borderRadius: 14, padding: '12px 16px', border: '1px solid var(--border-subtle)', marginBottom: 16 }}>
           {isListening ? (
             <p style={{ margin: 0, fontSize: '0.92rem', color: transcript ? 'var(--text-primary)' : 'var(--text-muted)', fontStyle: transcript ? 'normal' : 'italic' }}>
@@ -168,17 +268,27 @@ export default function VoiceLoggerSheet({ open, onClose, targetUserId, onSucces
               <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: 'linear' }}>
                 <Sparkles size={18} />
               </motion.div>
-              <span>{lang === 'hi' ? 'AI आपकी आवाज का विश्लेषण कर रहा है...' : 'AI Analyzing voice intent...'}</span>
+              <span>{lang === 'hi' ? 'AI आपकी आवाज़ का विश्लेषण कर रहा है...' : 'AI analyzing voice command...'}</span>
             </div>
-          ) : resultMsg ? (
+          ) : result?.type === 'success' ? (
             <div style={{ color: '#10b981', fontWeight: 700, fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <CheckCircle2 size={18} />
-              <span>{resultMsg}</span>
+              <span>{lang === 'hi' ? result.msgHi : result.msgEn}</span>
             </div>
-          ) : errorMsg ? (
+          ) : result?.type === 'already_logged' ? (
+            <div style={{ color: 'var(--accent-teal)', fontWeight: 700, fontSize: '0.88rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <CheckCircle2 size={16} />
+              <span>{lang === 'hi' ? result.msgHi : result.msgEn}</span>
+            </div>
+          ) : result?.type === 'no_meds' ? (
+            <div style={{ color: '#f59e0b', fontWeight: 600, fontSize: '0.85rem', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: 6, textAlign: 'left' }}>
+              <Clock size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>{lang === 'hi' ? result.msgHi : result.msgEn}</span>
+            </div>
+          ) : result?.type === 'error' ? (
             <div style={{ color: '#ef4444', fontWeight: 600, fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <AlertCircle size={16} />
-              <span>{errorMsg}</span>
+              <span>{result.msg}</span>
             </div>
           ) : (
             <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-muted)' }}>
@@ -187,8 +297,8 @@ export default function VoiceLoggerSheet({ open, onClose, targetUserId, onSucces
           )}
         </div>
 
-        {/* Action Buttons */}
-        {transcript && !isAnalyzing && !resultMsg && (
+        {/* Manual confirm button — shown when transcript ready but not yet analyzing */}
+        {transcript && !isAnalyzing && !result && !isListening && autoSubmitCountdown === null && (
           <div style={{ marginBottom: 16 }}>
             <button
               type="button"
@@ -206,21 +316,95 @@ export default function VoiceLoggerSheet({ open, onClose, targetUserId, onSucces
                 boxShadow: '0 4px 15px rgba(45, 212, 191, 0.3)',
               }}
             >
-              {lang === 'hi' ? '⚡ AI से खुराक दर्ज करें (Confirm Voice Log)' : '⚡ AI Confirm & Log Doses'}
+              {lang === 'hi' ? 'AI से खुराक दर्ज करें' : 'AI Confirm & Log Doses'}
             </button>
           </div>
         )}
 
-        {/* Elderly Prompt Guide */}
+        {/* Retry button after error or no-meds */}
+        {(result?.type === 'error' || result?.type === 'no_meds') && (
+          <div style={{ marginBottom: 16 }}>
+            <button
+              type="button"
+              onClick={() => {
+                setResult(null)
+                setTranscript('')
+                transcriptRef.current = ''
+                startListening()
+              }}
+              style={{
+                width: '100%',
+                padding: '11px',
+                borderRadius: 14,
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--accent-teal)',
+                color: 'var(--accent-teal)',
+                fontWeight: 700,
+                fontSize: '0.88rem',
+                cursor: 'pointer',
+              }}
+            >
+              <Mic size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 6 }} />
+              {lang === 'hi' ? 'फिर से बोलें' : 'Tap to Retry'}
+            </button>
+          </div>
+        )}
+
+        {/* Elderly Prompt Guide — Lucide icons, no emoji */}
         <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-subtle)', borderRadius: 14, padding: '12px', textAlign: 'left' }}>
-          <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
-            {lang === 'hi' ? '💡 बुजुर्गों के लिए वॉइस गाइड (Voice Examples):' : '💡 Voice Examples for Elderly Care:'}
+          <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6 }}>
+            <Info size={12} />
+            {lang === 'hi' ? 'बुजुर्गों के लिए वॉइस उदाहरण:' : 'Voice Examples for Elderly Care:'}
           </span>
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-            <li>{lang === 'hi' ? '"मैंने रात की डोलू खा ली"' : '"Logged morning Dolo 650"'}</li>
-            <li>{lang === 'hi' ? '"सुबह की सभी दवाइयां ले ली हैं"' : '"Took all night medicines"'}</li>
+          <ul style={{ margin: 0, paddingLeft: 18, fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+            {lang === 'hi' ? (
+              <>
+                <li>"मैंने रात की दवा ले ली"</li>
+                <li>"सुबह की सभी दवाइयां ले ली हैं"</li>
+                <li>"दोपहर की दवा खा ली"</li>
+              </>
+            ) : (
+              <>
+                <li>"Logged night Paracetamol"</li>
+                <li>"Took all morning medicines"</li>
+                <li>"Evening dose done"</li>
+              </>
+            )}
           </ul>
+          <div style={{ marginTop: 8, fontSize: '0.7rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Mic size={10} />
+            {lang === 'hi'
+              ? 'हिन्दी और English दोनों में बोल सकते हैं'
+              : 'Hindi and English both supported'}
+          </div>
         </div>
+
+        {/* Language toggle hint */}
+        <div
+          style={{
+            marginTop: 12,
+            fontSize: '0.7rem',
+            color: 'var(--text-muted)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 4,
+          }}
+          onClick={() => {
+            // Trigger re-listen in current language
+            if (!isListening && !isAnalyzing) {
+              setResult(null)
+              setTranscript('')
+              transcriptRef.current = ''
+              startListening()
+            }
+          }}
+        >
+          {lang === 'hi'
+            ? `सुन रहा है: हिन्दी (hi-IN)`
+            : `Listening in: English (en-IN)`}
+        </div>
+
       </div>
     </Modal>
   )

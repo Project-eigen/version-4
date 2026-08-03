@@ -4293,3 +4293,32 @@ p, .modal-subtitle, .auth-subtitle, .confirm-dialog-desc {
   letter-spacing: 0.3px;
 }
 
+/* ===================== GLOBAL LOADING SPINNER ===================== */
+.loading-spinner-container {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  padding: 48px 16px !important;
+  margin: 0 auto !important;
+  text-align: center !important;
+}
+
+.loading-spinner {
+  width: 36px !important;
+  height: 36px !important;
+  border: 3px solid rgba(45, 212, 191, 0.2) !important;
+  border-top-color: var(--accent-teal, #2dd4bf) !important;
+  border-radius: 50% !important;
+  animation: spinGlobal 0.8s linear infinite !important;
+  margin: 0 auto !important;
+  display: block !important;
+}
+
+@keyframes spinGlobal {
+  to {
+    transform: rotate(360deg);
+  }
+}
+

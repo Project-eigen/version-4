@@ -589,36 +589,6 @@ Return ONLY valid JSON matching this structure:
 
             return jsonify({"ok": True})
 
-                    existing = MedicineLog.query.filter(
-                        MedicineLog.entry_id == med.id,
-                        MedicineLog.time_slot == slot_key,
-                        MedicineLog.logged_at >= start_dt,
-                        MedicineLog.logged_at <= end_dt,
-                    ).first()
-
-                    if not existing:
-                        log_entry = MedicineLog(
-                            entry_id=med.id,
-                            time_slot=slot_key,
-                            logged_at=datetime.utcnow(),
-                        )
-                        db.session.add(log_entry)
-                        logged_count += 1
-
-            if logged_count > 0:
-                safe_commit()
-                if linked_user.language == "hi":
-                    _reply(f"✅ <b>दवाइयां सफलतापूर्वक दर्ज हो गईं!</b>\n\nआपकी <b>{slot_label}</b> की {logged_count} दवाइयां दर्ज कर दी गई हैं। 🔥")
-                else:
-                    _reply(f"✅ <b>Doses Successfully Logged!</b>\n\nLogged {logged_count} dose(s) for your <b>{slot_label}</b> schedule. 🔥")
-            else:
-                if linked_user.language == "hi":
-                    _reply(f"ℹ️ आपकी <b>{slot_label}</b> की दवाइयां पहले से दर्ज हैं। 👍")
-                else:
-                    _reply(f"ℹ️ Your <b>{slot_label}</b> doses were already logged today. 👍")
-
-            return jsonify({"ok": True})
-
     # Unknown message fallback
     _reply("Send /start for instructions or a 6-digit code to link your account.")
     return jsonify({"ok": True})

@@ -1223,6 +1223,10 @@ def get_weekly_report():
 
     timeline = []
     tracked_scores = []
+    slot_totals = {"morning": 0, "afternoon": 0, "evening": 0, "night": 0}
+    slot_takens = {"morning": 0, "afternoon": 0, "evening": 0, "night": 0}
+    total_weekly_scheduled = 0
+    total_weekly_taken = 0
 
     for i in range(6, -1, -1):
         target_d = local_today - timedelta(days=i)
@@ -1233,9 +1237,11 @@ def get_weekly_report():
             timeline.append({
                 "day": day_label,
                 "date_str": date_str,
+                "full_date": target_d.isoformat(),
                 "status": "untracked",
                 "taken": 0,
                 "total": 0,
+                "doses": [],
             })
             continue
 
@@ -1254,21 +1260,38 @@ def get_weekly_report():
             timeline.append({
                 "day": day_label,
                 "date_str": date_str,
+                "full_date": target_d.isoformat(),
                 "status": "no_doses",
                 "taken": 0,
                 "total": 0,
+                "doses": [],
             })
             continue
 
         total_doses = 0
         taken_doses = 0
         d_iso = target_d.isoformat()
+        doses_detail = []
 
         for entry in active_meds:
             for slot in entry.schedule:
                 total_doses += 1
-                if d_iso in logged_map.get((entry.id, slot), set()):
+                total_weekly_scheduled += 1
+                slot_totals[slot] = slot_totals.get(slot, 0) + 1
+
+                is_taken = d_iso in logged_map.get((entry.id, slot), set())
+                if is_taken:
                     taken_doses += 1
+                    total_weekly_taken += 1
+                    slot_takens[slot] = slot_takens.get(slot, 0) + 1
+
+                doses_detail.append({
+                    "medicine_name": entry.name,
+                    "dosage": entry.dosage or "",
+                    "instructions": entry.instructions or "",
+                    "slot": slot,
+                    "taken": is_taken,
+                })
 
         day_ratio = (taken_doses / total_doses) if total_doses > 0 else 1.0
         tracked_scores.append(day_ratio)
@@ -1287,9 +1310,11 @@ def get_weekly_report():
         timeline.append({
             "day": day_label,
             "date_str": date_str,
+            "full_date": target_d.isoformat(),
             "status": status,
             "taken": taken_doses,
             "total": total_doses,
+            "doses": doses_detail,
         })
 
     total_logs_count = len(all_logs)
@@ -1302,10 +1327,35 @@ def get_weekly_report():
     else:
         overall_score = 0
 
+    # Compute slot adherence percentages & find best/weakest slots
+    slot_analytics = {}
+    best_slot = None
+    best_pct = -1
+    weakest_slot = None
+    weakest_pct = 101
+
+    for slot, total in slot_totals.items():
+        if total > 0:
+            pct = round((slot_takens[slot] / total) * 100)
+            slot_analytics[slot] = {"taken": slot_takens[slot], "total": total, "pct": pct}
+            if pct > best_pct:
+                best_pct = pct
+                best_slot = slot
+            if pct < weakest_pct:
+                weakest_pct = pct
+                weakest_slot = slot
+        else:
+            slot_analytics[slot] = {"taken": 0, "total": 0, "pct": 100}
+
     return jsonify({
         "userName": user_obj.name if user_obj else "User",
         "adherencePct": overall_score,
         "is_new_user": is_new_user,
+        "weekly_taken": total_weekly_taken,
+        "weekly_scheduled": total_weekly_scheduled,
+        "slot_analytics": slot_analytics,
+        "best_slot": best_slot,
+        "weakest_slot": weakest_slot if weakest_pct < 100 else None,
         "timeline": timeline,
         "app_version": "v4.1",
     })

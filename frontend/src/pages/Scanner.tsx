@@ -14,7 +14,7 @@ export default function Scanner() {
   const [capturing, setCapturing] = useState(false)
   const [cameraError, setCameraError] = useState(false)
   const [flashActive, setFlashActive] = useState(false)
-  const [capturedPreview, setCapturedPreview] = useState<string | null>(null)
+  const [pages, setPages] = useState<{ url: string; file: File }[]>([])
   const [errorMsg, setErrorMsg] = useState('')
   const [showTips, setShowTips] = useState(false)
   const [imageQuality, setImageQuality] = useState<'good' | 'poor' | null>(null)
@@ -87,54 +87,58 @@ export default function Scanner() {
     }
   }
 
-
-  const handleCapture = useCallback(async () => {
-    if (capturing) return
+  const handleSnapPhoto = useCallback(async () => {
+    if (pages.length >= 3) {
+      setErrorMsg('Maximum 3 pages allowed per scan.')
+      setTimeout(() => setErrorMsg(''), 3000)
+      return
+    }
     const imageSrc = webcamRef.current?.getScreenshot()
     if (!imageSrc) return
 
-    setCapturing(true)
-    setCapturedPreview(imageSrc)
     analyzeImageQuality(imageSrc)
     try {
       const res = await fetch(imageSrc)
       const blob = await res.blob()
-      const file = new File([blob], 'scan.jpg', { type: 'image/jpeg' })
-      const formData = new FormData()
-      formData.append('image', file)
-
-      const scanRes = await api.post('/medicine/scan', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-
-      navigate('/scan/approve', {
-        state: {
-          scanData: scanRes.data,
-          capturedImage: imageSrc,
-          targetMemberId: activeMemberId,
-        },
-      })
-    } catch (err: any) {
-      if (import.meta.env.DEV) console.error('Scan failed', err)
-      const msg = err?.response?.data?.error || 'Scan failed. Please try again.'
-      setErrorMsg(msg)
-      setTimeout(() => setErrorMsg(''), 4000)
-      setCapturing(false)
-      setCapturedPreview(null)
+      const file = new File([blob], `scan_page_${pages.length + 1}.jpg`, { type: 'image/jpeg' })
+      setPages((prev) => [...prev, { url: imageSrc, file }])
+    } catch (err) {
+      if (import.meta.env.DEV) console.error('Snap photo failed', err)
     }
-  }, [capturing, navigate, activeMemberId])
+  }, [pages.length, analyzeImageQuality])
 
-  const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const handleUploadFiles = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || [])
+    if (!selectedFiles.length) return
 
+    const remainingSlots = 3 - pages.length
+    const filesToUse = selectedFiles.slice(0, remainingSlots)
+
+    const newEntries = filesToUse.map((file) => ({
+      url: URL.createObjectURL(file),
+      file,
+    }))
+
+    setPages((prev) => [...prev, ...newEntries])
+    if (newEntries.length > 0) {
+      analyzeImageQuality(newEntries[0].url)
+    }
+  }, [pages.length, analyzeImageQuality])
+
+  const handleRemovePage = (index: number) => {
+    setPages((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleProcessScan = async () => {
+    if (pages.length === 0 || capturing) return
     setCapturing(true)
-    const imageSrc = URL.createObjectURL(file)
-    setCapturedPreview(imageSrc)
-    analyzeImageQuality(imageSrc)
+    setErrorMsg('')
+
     try {
       const formData = new FormData()
-      formData.append('image', file)
+      pages.forEach((p) => {
+        formData.append('images', p.file)
+      })
 
       const scanRes = await api.post('/medicine/scan', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -143,19 +147,18 @@ export default function Scanner() {
       navigate('/scan/approve', {
         state: {
           scanData: scanRes.data,
-          capturedImage: imageSrc,
+          capturedImage: pages[0]?.url || null,
           targetMemberId: activeMemberId,
         },
       })
     } catch (err: any) {
-      if (import.meta.env.DEV) console.error('Scan upload failed', err)
-      const msg = err?.response?.data?.error || 'Upload failed. Please try again.'
+      if (import.meta.env.DEV) console.error('Scan process failed', err)
+      const msg = err?.response?.data?.error || 'Scan failed. Please try clear, well-lit photos.'
       setErrorMsg(msg)
       setTimeout(() => setErrorMsg(''), 4000)
       setCapturing(false)
-      setCapturedPreview(null)
     }
-  }, [navigate, activeMemberId])
+  }
 
   return (
     <div className="scanner-fullpage">
@@ -201,76 +204,61 @@ export default function Scanner() {
 
       {/* Full-screen camera view */}
       <div className="scanner-camera-area">
-        {capturedPreview && (
-          <img
-            src={capturedPreview}
-            className="scanner-video-feed"
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 25 }}
-            alt="Captured Preview"
-          />
-        )}
         {capturing && (
           <div className="scanner-analyzing-overlay">
             <div className="loading-spinner-container">
               <div className="loading-spinner" style={{ borderTopColor: 'var(--accent-teal)', width: 36, height: 36 }} />
             </div>
-            <span className="scanner-analyzing-text">Reading prescription…</span>
+            <span className="scanner-analyzing-text">
+              Analyzing {pages.length} page{pages.length > 1 ? 's' : ''} with AI…
+            </span>
           </div>
         )}
-        {cameraError && !capturedPreview ? (
+        {cameraError ? (
           <div className="scanner-error-state">
             <ZapOff size={52} opacity={0.4} color="white" />
             <p className="scanner-error-title">Camera Unavailable</p>
             <p className="scanner-error-desc">
-              To scan prescriptions, allow camera access in your browser settings.
+              To scan prescriptions, allow camera access in your browser settings or use the upload button.
             </p>
-            <div className="error-steps">
-              <p className="error-step-label">Steps to enable:</p>
-              <ol className="error-steps-list">
-                <li>Tap the lock icon in the address bar</li>
-                <li>Find "Camera" in permissions</li>
-                <li>Change to "Allow"</li>
-                <li>Refresh this page</li>
-              </ol>
-            </div>
           </div>
         ) : (
           <>
-            {!capturedPreview && (
-              <Webcam
-                ref={webcamRef}
-                audio={false}
-                playsInline
-                screenshotFormat="image/jpeg"
-                screenshotQuality={1.0}
-                videoConstraints={{
-                  facingMode: { ideal: 'environment' },
-                  width: { ideal: 1280 },
-                  height: { ideal: 720 },
-                }}
-                onUserMediaError={() => setCameraError(true)}
-                className="scanner-video-feed"
-                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-              />
-            )}
+            <Webcam
+              ref={webcamRef}
+              audio={false}
+              playsInline
+              screenshotFormat="image/jpeg"
+              screenshotQuality={1.0}
+              videoConstraints={{
+                facingMode: { ideal: 'environment' },
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+              }}
+              onUserMediaError={() => setCameraError(true)}
+              className="scanner-video-feed"
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+            />
 
             {/* Futuristic HUD Viewfinder overlay */}
-            {!capturedPreview && (
-              <div className="scanner-viewfinder">
-                <div className={`scanner-scan-line ${capturing ? 'is-active' : ''}`} aria-hidden="true" />
-                <div className="scanner-corner tl" aria-hidden="true" />
-                <div className="scanner-corner tr" aria-hidden="true" />
-                <div className="scanner-corner bl" aria-hidden="true" />
-                <div className="scanner-corner br" aria-hidden="true" />
-                <div className="scanner-reticle-crosshair" aria-hidden="true" />
-              </div>
-            )}
+            <div className="scanner-viewfinder">
+              <div className={`scanner-scan-line ${capturing ? 'is-active' : ''}`} aria-hidden="true" />
+              <div className="scanner-corner tl" aria-hidden="true" />
+              <div className="scanner-corner tr" aria-hidden="true" />
+              <div className="scanner-corner bl" aria-hidden="true" />
+              <div className="scanner-corner br" aria-hidden="true" />
+              <div className="scanner-reticle-crosshair" aria-hidden="true" />
+            </div>
 
             {/* AR Live Status Banner */}
             <div className="scanner-hud-status">
               <span className="hud-pulse-dot" />
               <span className="hud-status-text">
-                {capturing ? 'Analyzing prescription details…' : 'Position prescription inside reticle'}
+                {capturing
+                  ? 'Analyzing prescription & box images…'
+                  : pages.length > 0
+                  ? `${pages.length}/3 page${pages.length > 1 ? 's' : ''} ready — tap Process or add another`
+                  : 'Position prescription or medicine box inside reticle'}
               </span>
             </div>
 
@@ -292,15 +280,15 @@ export default function Scanner() {
                 <div className="checklist-item">
                   <span className="checklist-icon">📐</span>
                   <div className="checklist-info">
-                    <span className="checklist-title">Flat & Parallel Angle</span>
-                    <span className="checklist-desc">Hold your phone directly above the prescription.</span>
+                    <span className="checklist-title">Multi-Page & Box Scanning</span>
+                    <span className="checklist-desc">You can snap up to 3 photos (prescription pages + medicine box/strip).</span>
                   </div>
                 </div>
                 <div className="checklist-item">
-                  <span className="checklist-icon">🔍</span>
+                  <span className="checklist-icon">🇮🇳</span>
                   <div className="checklist-info">
-                    <span className="checklist-title">Clear Medicine Names</span>
-                    <span className="checklist-desc">Include doctor notes, dosage columns, and timings.</span>
+                    <span className="checklist-title">Hindi & Handwritten Support</span>
+                    <span className="checklist-desc">AI understands Hindi doctor notes (e.g. "सुबह शाम 1-0-1", "खाने के बाद").</span>
                   </div>
                 </div>
               </div>
@@ -328,6 +316,68 @@ export default function Scanner() {
         </div>
       )}
 
+      {/* Captured pages thumbnail tray */}
+      {pages.length > 0 && (
+        <div style={{
+          position: 'absolute',
+          bottom: 110,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 35,
+          display: 'flex',
+          gap: 10,
+          background: 'rgba(15, 23, 42, 0.85)',
+          backdropFilter: 'blur(12px)',
+          border: '1px solid rgba(255, 255, 255, 0.15)',
+          padding: '8px 14px',
+          borderRadius: 20,
+        }}>
+          {pages.map((p, i) => (
+            <div key={i} style={{ position: 'relative', width: 44, height: 44, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--accent-teal)' }}>
+              <img src={p.url} alt={`Page ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <button
+                type="button"
+                onClick={() => handleRemovePage(i)}
+                style={{
+                  position: 'absolute', top: 2, right: 2, width: 16, height: 16, borderRadius: '50%',
+                  background: '#ef4444', color: '#fff', border: 'none', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, padding: 0
+                }}
+                title="Remove page"
+              >
+                ✕
+              </button>
+              <span style={{ position: 'absolute', bottom: 1, left: 3, fontSize: '0.58rem', fontWeight: 800, color: '#fff', textShadow: '0 1px 2px #000' }}>
+                P{i + 1}
+              </span>
+            </div>
+          ))}
+
+          {pages.length > 0 && (
+            <button
+              type="button"
+              onClick={handleProcessScan}
+              disabled={capturing}
+              style={{
+                background: 'linear-gradient(135deg, var(--accent-teal) 0%, #0d9488 100%)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 12,
+                padding: '0 14px',
+                fontWeight: 700,
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              Scan ({pages.length}) ✓
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Capture button pinned above bottom */}
       <div className={`scanner-capture-dock ${capturing ? 'processing-state' : ''}`}>
         
@@ -336,9 +386,9 @@ export default function Scanner() {
           <label
             className="gallery-btn-small"
             style={{
-              cursor: capturing ? 'not-allowed' : 'pointer',
-              opacity: capturing ? 0.5 : 1,
-              pointerEvents: capturing ? 'none' : 'auto',
+              cursor: capturing || pages.length >= 3 ? 'not-allowed' : 'pointer',
+              opacity: capturing || pages.length >= 3 ? 0.5 : 1,
+              pointerEvents: capturing || pages.length >= 3 ? 'none' : 'auto',
             }}
             title="Upload prescription photo"
           >
@@ -346,9 +396,10 @@ export default function Scanner() {
             <input
               type="file"
               accept="image/*"
-              onChange={handleUpload}
+              multiple
+              onChange={handleUploadFiles}
               style={{ display: 'none' }}
-              disabled={capturing}
+              disabled={capturing || pages.length >= 3}
             />
           </label>
           <span className="scanner-action-label">Upload</span>
@@ -358,15 +409,15 @@ export default function Scanner() {
         <div className="scanner-action-wrapper">
           <button
             className="capture-btn"
-            onClick={handleCapture}
-            disabled={cameraError || capturing}
+            onClick={handleSnapPhoto}
+            disabled={cameraError || capturing || pages.length >= 3}
             id="capture-btn"
             aria-label="Capture medicine image"
             type="button"
           >
             <Camera size={28} color="#0f172a" strokeWidth={2} />
           </button>
-          <span className="scanner-action-label">Take Photo</span>
+          <span className="scanner-action-label">{pages.length > 0 ? '+ Add Page' : 'Take Photo'}</span>
         </div>
 
         {/* Right Side: Type Manually Fallback */}

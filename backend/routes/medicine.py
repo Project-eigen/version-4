@@ -14,28 +14,47 @@ import io
 
 medicine_bp = Blueprint("medicine", __name__)
 
+from PIL import Image, ImageOps, ImageEnhance
+
 SCAN_PROMPT = """You are an expert Indian prescription OCR agent specialized for a daily medicine cabinet system.
 
-CRITICAL CONTEXT: Each extracted medicine will be assigned to a family member's cabinet with daily time slots (Morning 8AM, Afternoon 1PM, Evening 6PM, Night 10PM). The "days" field controls cabinet expiry — after the prescribed days elapse, the medicine stops appearing. Accuracy here directly affects patient safety.
+CRITICAL CONTEXT: Each extracted medicine will be assigned to a family member's cabinet with daily time slots (Morning 8AM, Afternoon 1PM, Evening 6PM, Night 10PM). The "days" field controls cabinet expiry. Accuracy directly affects patient safety.
 
-For each medicine found, extract ALL of the following fields:
-- "name": full medicine name including brand and strength (e.g. "Tab Cetil 500mg", "Cap Pantocid DSR 40mg"). Include the form (Tab / Cap / Inj / Syrup / Drops / Nebulization) in the name if visible.
-- "dosage": quantity per single dose as written (e.g. "1", "2", "1/2", "2 drops", "10 units"). If timing-specific doses differ (e.g. 1 in morning and 2 at night), summarize as "1-0-2" (morning-afternoon-evening-night order).
-- "schedule": list of time slots when the medicine is taken. Use ONLY these values: "morning", "afternoon", "evening", "night". Infer from columns labelled Mrng/Morning, Noon/Afternoon, Evng/Evening, Night/Bedtime. If a cell has a number, a tick, or any mark, that slot is active.
-- "days": integer number of days the medicine is prescribed for (from the Days column or text like "for 5 days"). CRITICAL for cabinet expiry. Return null if not found.
-- "instructions": administration instructions exactly as written (e.g. "After Food", "Before Breakfast", "S/C", "At Bed Time", "With Water"). Return null if not found.
-- "confidence": OCR certainty based on legibility: "high" (clear printed text or well-written print), "medium" (average cursive or regular handwriting), "low" (scribbles, smudges, highly ambiguous).
+For each medicine found in the prescription image(s), extract ALL of the following fields:
+- "name": full medicine name including brand/generic name and strength (e.g. "Tab Cetil 500mg", "Cap Pantocid DSR 40mg", "Syp Dolo 250"). Include dosage form (Tab / Cap / Inj / Syrup / Drops / Nebulization / Ointment) if visible.
+- "dosage": quantity per single dose as written (e.g. "1", "2", "1/2", "5 ml", "2 drops", "10 units"). Summarize differing slot doses as "1-0-2" order.
+- "schedule": list of active time slots. Allowed values ONLY: ["morning", "afternoon", "evening", "night"].
+- "days": integer number of days prescribed (e.g. 5 for "for 5 days" or "5 दिन"). Return null if unspecified.
+- "instructions": administration notes (e.g. "After Food", "Before Breakfast", "At Bed Time", "With Water"). Return null if absent.
+- "confidence": OCR certainty: "high", "medium", "low".
+
+INDIAN & HINDI / HINGLISH SCRIPT & NOTATION RULES:
+1. Schedule notations:
+   - "1-0-1", "BD", "BID", "दिन में 2 बार", "सुबह शाम" -> ["morning", "night"]
+   - "1-1-1", "TDS", "TID", "दिन में 3 बार", "सुबह दोपहर शाम" -> ["morning", "afternoon", "night"]
+   - "1-0-0", "OD", "रोजाना 1 बार", "सुबह" -> ["morning"]
+   - "0-0-1", "रात को", "सोते समय", "HS", "Bedtime" -> ["night"]
+   - "0-1-0", "दोपहर" -> ["afternoon"]
+   - "1-1-1-1", "QDS", "QID", "दिन में 4 बार" -> ["morning", "afternoon", "evening", "night"]
+   - "SOS", "ज़रूरत पड़ने पर" -> ["morning"] (note SOS in instructions)
+2. Hindi instruction translations:
+   - "खाने के बाद" / "नाश्ते के बाद" / "खिलाकर" -> "After Food"
+   - "खाली पेट" / "भूखे पेट" -> "Before Food / Empty Stomach"
+   - "दूध के साथ" -> "With Milk"
+   - "पानी के साथ" -> "With Water"
+   - "रात को सोने से पहले" -> "At Bed Time"
+3. Common Indian drug abbreviations:
+   - "PCM" -> "Paracetamol"
+   - "Pan D" / "Pantocid D" -> "Pan-D (Pantoprazole + Domperidone)"
+   - "MVT" -> "Multivitamin"
+   - "CPM" -> "Chlorpheniramine"
+   - "AZI" -> "Azithromycin"
+   - "Dolo 650" -> "Dolo 650mg"
 
 Also, extract a list of "unparsed_lines":
-- "unparsed_lines": a list of strings containing any other text lines or handwritten scribbles that look like drug names or clinical notes but couldn't be fully structured. Return an empty list if none.
+- "unparsed_lines": any other text lines or handwritten scribbles that look like drug names or clinical notes but couldn't be fully structured.
 
-For handwritten prescriptions:
-- Read the medicine name even if abbreviated (e.g. "Pan D" = "Pan-D", "PCM" = "Paracetamol", "MT" = "MVT").
-- Infer schedule from notations: "1-0-1" (morning+night), "1-1-1" (morning+afternoon+night), "OD" (once daily = morning), "BD" (twice = morning+night), "TDS" (three times = morning+afternoon+night), "QDS" (four times = all slots).
-- Look for handwritten numbers at the bottom or margins as additional medicines.
-- Days field is critical — look for "X days" or "for X days" text. If absent, look for date ranges.
-
-Return ONLY a valid JSON object with this exact structure, no markdown, no explanation:
+Return ONLY a valid JSON object:
 {
   "medicines": [
     {
@@ -47,75 +66,124 @@ Return ONLY a valid JSON object with this exact structure, no markdown, no expla
       "confidence": "high"
     }
   ],
-  "unparsed_lines": [
-    "Syp. Combiflam 100ml - SOS",
-    "Tab. Limcee - once daily"
-  ]
-}
+  "unparsed_lines": []
+}"""
 
-If a field cannot be determined, use null. Return ONLY the JSON."""
+
+def preprocess_prescription_image(pil_img: Image.Image) -> Image.Image:
+    """Preprocess PIL Image for OCR accuracy:
+    - Transpose EXIF orientation (rotate sideways camera photos)
+    - Apply adaptive contrast & sharpness enhancement for handwritten ink
+    """
+    try:
+        pil_img = ImageOps.exif_transpose(pil_img)
+    except Exception:
+        pass
+
+    try:
+        if pil_img.mode != "RGB":
+            pil_img = pil_img.convert("RGB")
+
+        # Contrast & Sharpness enhancement for handwritten ink
+        enhancer = ImageEnhance.Contrast(pil_img)
+        pil_img = enhancer.enhance(1.25)
+
+        sharpener = ImageEnhance.Sharpness(pil_img)
+        pil_img = sharpener.enhance(1.3)
+    except Exception:
+        pass
+
+    return pil_img
+
+
+def normalize_medicine_name(name: str) -> str:
+    """Post-processor that standardizes Indian pharmaceutical abbreviations and strengths."""
+    if not name:
+        return ""
+    import re
+    cleaned = name.strip()
+
+    abbreviations = [
+        (r'\bPCM\b', 'Paracetamol'),
+        (r'\bPAN[- ]?D\b', 'Pan-D (Pantoprazole + Domperidone)'),
+        (r'\bPANTOCID[- ]?DSR\b', 'Pantocid DSR 40mg'),
+        (r'\bMVT\b', 'Multivitamin'),
+        (r'\bCPM\b', 'Chlorpheniramine'),
+        (r'\bAZI\b', 'Azithromycin'),
+        (r'\bAMLO\b', 'Amlodipine'),
+        (r'\bTELMI\b', 'Telmisartan'),
+        (r'\bTELMA\b', 'Telma (Telmisartan)'),
+        (r'\bDOLO[- ]?650\b', 'Dolo 650mg'),
+        (r'\bDOLO[- ]?500\b', 'Dolo 500mg'),
+    ]
+
+    for pattern, replacement in abbreviations:
+        cleaned = re.sub(pattern, replacement, cleaned, flags=re.IGNORECASE)
+
+    # Standardize strength spacing: e.g. "500 mg" -> "500mg", "0.5 mg" -> "0.5mg"
+    cleaned = re.sub(r'(\d+(?:\.\d+)?)\s*(mg|mcg|gm|g|ml|iu|units)\b', r'\1\2', cleaned, flags=re.IGNORECASE)
+
+    return cleaned
 
 
 @medicine_bp.route("/api/medicine/scan", methods=["POST"])
 @limiter.limit("10 per hour", error_message="Scan limit reached. You can scan up to 10 prescriptions per hour. Please try again later.")
 def scan_medicine():
-    """Scan a medicine image using Gemini Flash and extract details.
-
-    Image pipeline:
-    - Original bytes → Gemini (full quality for best OCR on handwritten prescriptions)
-    - Compressed copy (800px, q70) → Cloudinary (display thumbnail only)
-
-    IMPORTANT: Do NOT compress before sending to Gemini. Compression degrades
-    handwritten text in prescriptions and reduces extraction accuracy.
-    """
+    """Scan 1 or more prescription/box images using Gemini Flash and extract details."""
     user = get_current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
 
-    if "image" not in request.files:
+    # Gather all uploaded image files (supports multi-image batch scan)
+    file_list = []
+    if "images" in request.files:
+        file_list = request.files.getlist("images")
+    elif "image" in request.files:
+        file_list = request.files.getlist("image")
+    else:
+        # Check image_0, image_1, image_2 keys
+        for key in ("image_0", "image_1", "image_2"):
+            if key in request.files:
+                file_list.append(request.files[key])
+
+    if not file_list:
         return jsonify({"error": "No image provided"}), 400
 
-    image_file = request.files["image"]
-    image_bytes = image_file.read()
+    # Limit max 3 images per scan batch
+    file_list = file_list[:3]
 
-    if len(image_bytes) > current_app.config["MAX_CONTENT_LENGTH"]:
-        return jsonify({"error": "Image too large (max 16MB)", "code": "IMAGE_TOO_LARGE", "retryable": False}), 413
+    gemini_images = []
+    storage_urls = []
 
-    # ── Parse image for Pillow (needed both for Gemini API and storage) ────────
-    try:
-        img_for_gemini = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    except Exception as e:
-        current_app.logger.error(f"Image processing error: {e}")
-        return jsonify({"error": "Failed to process image", "code": "IMAGE_PROCESS_ERROR", "retryable": False}), 422
+    for file_obj in file_list:
+        image_bytes = file_obj.read()
+        if not image_bytes:
+            continue
+        if len(image_bytes) > current_app.config["MAX_CONTENT_LENGTH"]:
+            return jsonify({"error": "Image too large (max 16MB)", "code": "IMAGE_TOO_LARGE", "retryable": False}), 413
 
-    # ── Prepare a SEPARATE compressed copy for Cloudinary storage only ─────────
-    # This compressed version is for display (medicine card thumbnail) only.
-    # Gemini receives the full-quality img_for_gemini object above.
-    try:
-        storage_img = img_for_gemini.copy()
-        max_storage_size = 800
-        if max(storage_img.size) > max_storage_size:
-            storage_img.thumbnail((max_storage_size, max_storage_size), Image.Resampling.LANCZOS)
-        storage_buffer = io.BytesIO()
-        storage_img.save(storage_buffer, format="JPEG", quality=70)
-        storage_bytes = storage_buffer.getvalue()
-    except Exception as e:
-        current_app.logger.error(f"Storage image preparation error: {e}")
-        # Non-fatal — we can still proceed without the storage copy
-        storage_bytes = None
-
-    # ── Upload the compressed version to Cloudinary for display ───────────────
-    scan_image_url = ""
-    if storage_bytes:
         try:
-            scan_image_url = upload_image_bytes(storage_bytes, folder="dawaisathi")
-        except CloudinaryUploadError as e:
-            return jsonify({
-                "error": "Image upload to CDN failed. Check CLOUDINARY_URL.",
-                "code": "CLOUDINARY_UPLOAD_FAILED",
-                "retryable": True,
-                "detail": str(e),
-            }), 502
+            raw_img = Image.open(io.BytesIO(image_bytes))
+            processed_img = preprocess_prescription_image(raw_img)
+            gemini_images.append(processed_img)
+
+            # Prepare compressed thumbnail for storage
+            storage_img = processed_img.copy()
+            max_storage_size = 800
+            if max(storage_img.size) > max_storage_size:
+                storage_img.thumbnail((max_storage_size, max_storage_size), Image.Resampling.LANCZOS)
+            storage_buffer = io.BytesIO()
+            storage_img.save(storage_buffer, format="JPEG", quality=70)
+            url = upload_image_bytes(storage_buffer.getvalue(), folder="dawaisathi")
+            if url:
+                storage_urls.append(url)
+        except Exception as e:
+            current_app.logger.error(f"Image preprocessing/upload error: {e}")
+
+    if not gemini_images:
+        return jsonify({"error": "Failed to process image(s)", "code": "IMAGE_PROCESS_ERROR", "retryable": False}), 422
+
+    scan_image_url = storage_urls[0] if storage_urls else ""
 
     api_key = current_app.config.get("GEMINI_API_KEY")
     if not api_key:
@@ -130,8 +198,9 @@ def scan_medicine():
             try:
                 genai.configure(api_key=api_key)
                 model = genai.GenerativeModel(model_name)
-                # Send full-quality PIL Image object — uncompressed for max OCR accuracy
-                response = model.generate_content([SCAN_PROMPT, img_for_gemini])
+                # Pass prompt + all preprocessed PIL images to Gemini vision call
+                content_payload = [SCAN_PROMPT] + gemini_images
+                response = model.generate_content(content_payload)
                 raw_text = response.text.strip()
 
                 import re
@@ -151,7 +220,23 @@ def scan_medicine():
                 else:
                     extracted = {"medicines": []}
 
-                current_app.logger.info(f"Prescription scan successful using {model_name}")
+                # Apply Indian drug name & strength normalization
+                meds_list = extracted.get("medicines", [])
+                normalized_meds = []
+                seen_keys = set()
+
+                for med in meds_list:
+                    if isinstance(med, dict) and "name" in med and med["name"]:
+                        med["name"] = normalize_medicine_name(med["name"])
+                        # Deduplicate across pages
+                        key = f"{med['name'].lower()}:{'-'.join(sorted(med.get('schedule', [])))}"
+                        if key not in seen_keys:
+                            seen_keys.add(key)
+                            normalized_meds.append(med)
+
+                extracted["medicines"] = normalized_meds
+
+                current_app.logger.info(f"Prescription scan successful using {model_name} with {len(gemini_images)} image(s)")
                 try:
                     scan_record = PrescriptionScan(
                         user_id=user.id,

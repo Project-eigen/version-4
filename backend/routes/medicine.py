@@ -126,10 +126,44 @@ def normalize_medicine_name(name: str) -> str:
     return cleaned
 
 
+import base64
+import requests
+
+def call_openrouter_vision(prompt: str, pil_images: list, model_name: str, api_key: str) -> str:
+    """Invoke vision models like Qwen2.5-VL 72B or Claude 3.5 Sonnet via OpenRouter unified API."""
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "HTTP-Referer": "https://dawaisathi.com",
+        "X-Title": "DawaiSathi OCR Engine",
+        "Content-Type": "application/json"
+    }
+
+    content_list = [{"type": "text", "text": prompt}]
+    for img in pil_images:
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=85)
+        b64_str = base64.b64encode(buf.getvalue()).decode("utf-8")
+        content_list.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{b64_str}"}
+        })
+
+    payload = {
+        "model": model_name,
+        "messages": [{"role": "user", "content": content_list}],
+        "temperature": 0.1,
+    }
+
+    resp = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=45)
+    resp.raise_for_status()
+    data = resp.json()
+    return data["choices"][0]["message"]["content"]
+
+
 @medicine_bp.route("/api/medicine/scan", methods=["POST"])
 @limiter.limit("10 per hour", error_message="Scan limit reached. You can scan up to 10 prescriptions per hour. Please try again later.")
 def scan_medicine():
-    """Scan 1 or more prescription/box images using Gemini Flash and extract details."""
+    """Scan 1 or more prescription/box images using Qwen2.5-VL 72B / Claude 3.5 Sonnet (via OpenRouter) or Gemini Flash fallback."""
     user = get_current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
@@ -184,51 +218,38 @@ def scan_medicine():
         return jsonify({"error": "Failed to process image(s)", "code": "IMAGE_PROCESS_ERROR", "retryable": False}), 422
 
     scan_image_url = storage_urls[0] if storage_urls else ""
-
-    api_key = current_app.config.get("GEMINI_API_KEY")
-    if not api_key:
-        return jsonify({"error": "Gemini API not configured on server", "code": "GEMINI_NOT_CONFIGURED", "retryable": False}), 500
-
-    import time
-    candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest", "gemini-2.5-pro"]
     last_error = None
 
-    for model_name in candidate_models:
-        for attempt in range(2):
+    # ── 1. Try OpenRouter Vision Pipeline (Qwen2.5-VL 72B / Claude 3.5 Sonnet) ────
+    openrouter_key = current_app.config.get("OPENROUTER_API_KEY")
+    if openrouter_key:
+        openrouter_models = [
+            "qwen/qwen-2.5-vl-72b-instruct",
+            "anthropic/claude-3.5-sonnet",
+        ]
+        for model_name in openrouter_models:
             try:
-                genai.configure(api_key=api_key)
-                model = genai.GenerativeModel(model_name)
-                # Pass prompt + all preprocessed PIL images to Gemini vision call
-                content_payload = [SCAN_PROMPT] + gemini_images
-                response = model.generate_content(content_payload)
-                raw_text = response.text.strip()
-
+                raw_text = call_openrouter_vision(SCAN_PROMPT, gemini_images, model_name, openrouter_key)
                 import re
                 json_match = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
                 json_str = json_match.group(1).strip() if json_match else raw_text
-
                 extracted = json.loads(json_str)
 
                 if isinstance(extracted, dict):
                     if "medicines" not in extracted:
-                        if "name" in extracted:
-                            extracted = {"medicines": [extracted]}
-                        else:
-                            extracted = {"medicines": []}
+                        extracted = {"medicines": [extracted] if "name" in extracted else []}
                 elif isinstance(extracted, list):
                     extracted = {"medicines": extracted}
                 else:
                     extracted = {"medicines": []}
 
-                # Apply Indian drug name & strength normalization
+                # Normalize & Deduplicate
                 meds_list = extracted.get("medicines", [])
                 normalized_meds = []
                 seen_keys = set()
-
                 for med in meds_list:
                     if isinstance(med, dict) and "name" in med and med["name"]:
                         med["name"] = normalize_medicine_name(med["name"])
-                        # Deduplicate across pages
                         key = f"{med['name'].lower()}:{'-'.join(sorted(med.get('schedule', [])))}"
                         if key not in seen_keys:
                             seen_keys.add(key)
@@ -236,7 +257,7 @@ def scan_medicine():
 
                 extracted["medicines"] = normalized_meds
 
-                current_app.logger.info(f"Prescription scan successful using {model_name} with {len(gemini_images)} image(s)")
+                current_app.logger.info(f"Prescription scan successful via OpenRouter using {model_name}")
                 try:
                     scan_record = PrescriptionScan(
                         user_id=user.id,
@@ -247,22 +268,79 @@ def scan_medicine():
                     db.session.add(scan_record)
                     safe_commit()
                 except Exception as scan_db_err:
-                    current_app.logger.warning(f"Could not save scan history record: {scan_db_err}")
+                    current_app.logger.warning(f"Could not save scan record: {scan_db_err}")
 
-                return jsonify({"scan_image_url": scan_image_url, "extracted": extracted})
-
+                return jsonify({"scan_image_url": scan_image_url, "extracted": extracted, "model_used": model_name})
             except Exception as e:
                 last_error = str(e)
-                current_app.logger.warning(f"Gemini scan model {model_name} attempt {attempt+1} failed: {e}")
-                time.sleep(0.5)
+                current_app.logger.warning(f"OpenRouter model {model_name} failed: {e}")
+
+    # ── 2. Fallback to Gemini API ────────────────────────────────────────────────
+    api_key = current_app.config.get("GEMINI_API_KEY")
+    if api_key:
+        import time
+        candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest", "gemini-2.5-pro"]
+
+        for model_name in candidate_models:
+            for attempt in range(2):
+                try:
+                    genai.configure(api_key=api_key)
+                    model = genai.GenerativeModel(model_name)
+                    content_payload = [SCAN_PROMPT] + gemini_images
+                    response = model.generate_content(content_payload)
+                    raw_text = response.text.strip()
+
+                    import re
+                    json_match = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
+                    json_str = json_match.group(1).strip() if json_match else raw_text
+                    extracted = json.loads(json_str)
+
+                    if isinstance(extracted, dict):
+                        if "medicines" not in extracted:
+                            extracted = {"medicines": [extracted] if "name" in extracted else []}
+                    elif isinstance(extracted, list):
+                        extracted = {"medicines": extracted}
+                    else:
+                        extracted = {"medicines": []}
+
+                    meds_list = extracted.get("medicines", [])
+                    normalized_meds = []
+                    seen_keys = set()
+                    for med in meds_list:
+                        if isinstance(med, dict) and "name" in med and med["name"]:
+                            med["name"] = normalize_medicine_name(med["name"])
+                            key = f"{med['name'].lower()}:{'-'.join(sorted(med.get('schedule', [])))}"
+                            if key not in seen_keys:
+                                seen_keys.add(key)
+                                normalized_meds.append(med)
+
+                    extracted["medicines"] = normalized_meds
+
+                    current_app.logger.info(f"Prescription scan successful using {model_name}")
+                    try:
+                        scan_record = PrescriptionScan(
+                            user_id=user.id,
+                            family_id=user.family_id,
+                            scan_image_url=scan_image_url,
+                            medicines_json=json.dumps(extracted.get("medicines", []))
+                        )
+                        db.session.add(scan_record)
+                        safe_commit()
+                    except Exception as scan_db_err:
+                        current_app.logger.warning(f"Could not save scan history record: {scan_db_err}")
+
+                    return jsonify({"scan_image_url": scan_image_url, "extracted": extracted, "model_used": model_name})
+
+                except Exception as e:
+                    last_error = str(e)
+                    current_app.logger.warning(f"Gemini model {model_name} attempt {attempt+1} failed: {e}")
+                    time.sleep(0.5)
 
     err_lower = last_error.lower() if last_error else ""
     if "quota" in err_lower or "rate" in err_lower:
         return jsonify({"error": "AI rate limit reached. Please try again in 1 minute.", "code": "GEMINI_RATE_LIMIT", "retryable": True}), 429
-    if "api_key" in err_lower or "auth" in err_lower or "permission" in err_lower:
-        return jsonify({"error": "Server AI key error. Please contact administrator.", "code": "GEMINI_AUTH_ERROR", "retryable": False}), 500
     
-    return jsonify({"error": "Failed to extract medicines from image. Please ensure the prescription photo is clear and well-lit.", "code": "GEMINI_EXTRACTION_FAILED", "retryable": True}), 422
+    return jsonify({"error": "Failed to extract medicines from image. Please ensure the prescription photo is clear and well-lit.", "code": "EXTRACTION_FAILED", "retryable": True}), 422
 
 
 @medicine_bp.route("/api/medicine/add", methods=["POST"])

@@ -54,6 +54,8 @@ class Config:
     )
 
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+    OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+    ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
     FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
 
     UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")

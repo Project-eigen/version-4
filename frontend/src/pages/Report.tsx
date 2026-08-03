@@ -19,6 +19,7 @@ import {
   Moon,
   Info,
   X,
+  Printer,
 } from 'lucide-react'
 import html2canvas from 'html2canvas'
 import api from '../api/client'
@@ -275,6 +276,27 @@ export default function Report() {
               }}
             >
               <Copy size={14} /> {lang === 'hi' ? 'कॉपी करें' : 'Copy Text'}
+            </button>
+
+            <button
+              onClick={() => window.print()}
+              disabled={loading}
+              style={{
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-subtle)',
+                color: 'var(--text-primary)',
+                padding: '8px 14px',
+                borderRadius: 'var(--radius-full)',
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: '0.8rem',
+              }}
+            >
+              <Printer size={15} color="var(--accent-teal)" />
+              {lang === 'hi' ? 'डॉक्टर PDF रिपोर्ट' : 'Doctor PDF'}
             </button>
 
             <button

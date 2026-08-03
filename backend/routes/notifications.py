@@ -400,19 +400,23 @@ def telegram_webhook():
         _answer_callback(cq_id, "")
         return jsonify({"ok": True})
 
-    # ── Handle regular text messages ─────────────────────────────────────────
+    # ── Handle regular text & voice messages ─────────────────────────────────
     message = data.get("message", {})
     if not message:
         return jsonify({"ok": True})
 
     chat_id = str(message.get("chat", {}).get("id", ""))
     text = message.get("text", "").strip()
+    voice = message.get("voice")
 
     if not chat_id:
         return jsonify({"ok": True})
 
     def _reply(msg: str) -> None:
         _send(chat_id, msg)
+
+    # Find linked user for this chat_id
+    linked_user = User.query.filter_by(telegram_chat_id=chat_id).first()
 
     # /start command
     if text == "/start":
@@ -451,7 +455,7 @@ def telegram_webhook():
                 f"✅ <b>Linked successfully!</b>\n\n"
                 f"Hi {target_user.name}! 👋\n"
                 f"You'll now get medicine reminders here.\n\n"
-                f"💡 <i>Tap the <b>Log all doses</b> button on any reminder to log doses without opening the app.</i>\n\n"
+                f"💡 <i>You can log doses by tapping the button on any reminder, or simply reply with a text/voice message like 'दवा खा ली' or 'Logged dose'.</i>\n\n"
                 f"Send /stop anytime to unlink."
             )
         else:
@@ -460,16 +464,92 @@ def telegram_webhook():
 
     # /stop command — unlink
     if text.lower() in ("/stop", "/unlink"):
-        user_to_unlink = User.query.filter_by(telegram_chat_id=chat_id).first()
-        if user_to_unlink:
-            user_to_unlink.telegram_chat_id = None
+        if linked_user:
+            linked_user.telegram_chat_id = None
             safe_commit()
             _reply("✅ Unlinked. You won't receive reminders here anymore.\nSend /start to re-link.")
         else:
             _reply("You're not currently linked to any account.")
         return jsonify({"ok": True})
 
-    # Unknown message
+    # ── Text or Voice message dose logging handler for linked elderly users ──
+    if linked_user:
+        is_voice = bool(voice)
+        msg_text = text.lower()
+        log_keywords = ("दवा", "खुराक", "डोलो", "dawa", "khali", "le li", "logged", "taken", "done", "yes", "ha", "haan", "morning", "night", " evening", "afternoon", "ok")
+        
+        if is_voice or any(k in msg_text for k in log_keywords):
+            # Determine target slot based on current hour
+            h = datetime.utcnow().hour + 5  # approximate IST shift (+5.5h)
+            h = h % 24
+            if 5 <= h < 11:
+                target_slot = "morning"
+                slot_label = "Morning / सुबह"
+            elif 11 <= h < 16:
+                target_slot = "afternoon"
+                slot_label = "Afternoon / दोपहर"
+            elif 16 <= h < 20:
+                target_slot = "evening"
+                slot_label = "Evening / शाम"
+            else:
+                target_slot = "night"
+                slot_label = "Night / रात"
+
+            # Fetch active medicines for linked user and target slot
+            med_entries = MedicineEntry.query.filter_by(user_id=linked_user.id).all()
+            target_meds = [m for m in med_entries if target_slot in (m.schedule or [])]
+
+            if not target_meds:
+                # Try all slots if target slot has no meds
+                target_meds = med_entries
+
+            if not target_meds:
+                if linked_user.language == "hi":
+                    _reply("ℹ️ आपके पास इस समय कोई सक्रिय दवा नहीं है।")
+                else:
+                    _reply("ℹ️ No active medicines found for your schedule.")
+                return jsonify({"ok": True})
+
+            today_utc = datetime.utcnow().date()
+            logged_count = 0
+
+            for med in target_meds:
+                slots_to_log = [target_slot] if target_slot in (med.schedule or []) else (med.schedule or ["morning"])
+                for slot_key in slots_to_log:
+                    start_dt = datetime.combine(today_utc, datetime.min.time())
+                    end_dt = datetime.combine(today_utc, datetime.max.time())
+
+                    existing = MedicineLog.query.filter(
+                        MedicineLog.entry_id == med.id,
+                        MedicineLog.time_slot == slot_key,
+                        MedicineLog.logged_at >= start_dt,
+                        MedicineLog.logged_at <= end_dt,
+                    ).first()
+
+                    if not existing:
+                        log_entry = MedicineLog(
+                            entry_id=med.id,
+                            time_slot=slot_key,
+                            logged_at=datetime.utcnow(),
+                        )
+                        db.session.add(log_entry)
+                        logged_count += 1
+
+            if logged_count > 0:
+                safe_commit()
+                if linked_user.language == "hi":
+                    _reply(f"✅ <b>दवाइयां सफलतापूर्वक दर्ज हो गईं!</b>\n\nआपकी <b>{slot_label}</b> की {logged_count} दवाइयां दर्ज कर दी गई हैं। 🔥")
+                else:
+                    _reply(f"✅ <b>Doses Successfully Logged!</b>\n\nLogged {logged_count} dose(s) for your <b>{slot_label}</b> schedule. 🔥")
+            else:
+                if linked_user.language == "hi":
+                    _reply(f"ℹ️ आपकी <b>{slot_label}</b> की दवाइयां पहले से दर्ज हैं। 👍")
+                else:
+                    _reply(f"ℹ️ Your <b>{slot_label}</b> doses were already logged today. 👍")
+
+            return jsonify({"ok": True})
+
+    # Unknown message fallback
     _reply("Send /start for instructions or a 6-digit code to link your account.")
     return jsonify({"ok": True})
 

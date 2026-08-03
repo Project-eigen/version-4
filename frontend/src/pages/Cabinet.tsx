@@ -11,7 +11,7 @@ import MedicineInfoModal from '../components/MedicineInfoModal'
 import InteractionCheckerCard from '../components/InteractionCheckerCard'
 import api, { getImageUrl } from '../api/client'
 import type { User, MedicineEntry, TimeSlot } from '../types'
-import { Pill, Archive, X, Trash2, Pencil, Clock, Sun, Sunrise, Sunset, Moon, Flame, ChevronRight, Info, CheckCircle2 } from 'lucide-react'
+import { Pill, Archive, X, Trash2, Pencil, Clock, Sun, Sunrise, Sunset, Moon, Flame, ChevronRight, Info, CheckCircle2, Mic, MicOff } from 'lucide-react'
 
 const TIME_SLOTS: { key: TimeSlot; label: string; time: string }[] = [
   { key: 'morning', label: 'Morning', time: '8:00 AM' },
@@ -415,9 +415,59 @@ export default function Cabinet() {
   const [streak, setStreak] = useState<StreakData | null>(null)
   const [dismissedMissed, setDismissedMissed] = useState(false)
   
-  // Floating HUD top bar states
+  // Floating HUD top bar & Voice states
   const [scrolled, setScrolled] = useState(false)
   const [safetySeverity, setSafetySeverity] = useState<'safe' | 'moderate' | 'severe' | null>(null)
+  const [isListening, setIsListening] = useState(false)
+  const { lang } = useLanguage()
+
+  const startVoiceLogging = () => {
+    const SpeechRecognition = (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).SpeechRecognition ||
+      (window as unknown as { SpeechRecognition?: any; webkitSpeechRecognition?: any }).webkitSpeechRecognition
+
+    if (!SpeechRecognition) {
+      showToast(lang === 'hi' ? 'आपका ब्राउज़र वॉइस सपोर्ट नहीं करता' : 'Voice recognition not supported on this browser')
+      return
+    }
+
+    const recognition = new SpeechRecognition()
+    recognition.lang = lang === 'hi' ? 'hi-IN' : 'en-IN'
+    recognition.interimResults = false
+
+    setIsListening(true)
+    showToast(lang === 'hi' ? '🎙️ सुन रहे हैं... (Listening...)' : '🎙️ Listening for voice command...')
+
+    recognition.onresult = (event: any) => {
+      const transcript = (event.results[0][0].transcript || '').toLowerCase()
+      setIsListening(false)
+
+      // Determine active target slot
+      const h = new Date().getHours()
+      let slot: TimeSlot = 'morning'
+      if (h >= 11 && h < 16) slot = 'afternoon'
+      else if (h >= 16 && h < 20) slot = 'evening'
+      else if (h >= 20 || h < 5) slot = 'night'
+
+      const matchingMeds = medicines.filter((m) => m.schedule?.includes(slot) && !m.today_logs?.includes(slot))
+      if (matchingMeds.length > 0) {
+        matchingMeds.forEach((m) => handleLog(m.id, slot))
+        showToast(lang === 'hi' ? `✅ "${transcript}" — ${matchingMeds.length} दवाइयां दर्ज हो गईं!` : `✅ "${transcript}" — Logged ${matchingMeds.length} dose(s)!`)
+      } else {
+        showToast(lang === 'hi' ? `ℹ️ "${transcript}" — इस समय की दवाइयां पहले से दर्ज हैं` : `ℹ️ "${transcript}" — Doses already logged for current slot`)
+      }
+    }
+
+    recognition.onerror = () => {
+      setIsListening(false)
+      showToast(lang === 'hi' ? 'वॉइस कमांड समझ नहीं आई, कृपया पुन: प्रयास करें' : 'Voice not recognized. Please try again.')
+    }
+
+    recognition.onend = () => {
+      setIsListening(false)
+    }
+
+    recognition.start()
+  }
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -862,6 +912,47 @@ export default function Cabinet() {
                 </motion.div>
               </AnimatePresence>
             )}
+
+            {/* ── Voice Dose Logger Button (Elderly Friendly) ──────────────── */}
+            <div style={{ padding: '10px 16px 4px' }}>
+              <button
+                type="button"
+                onClick={startVoiceLogging}
+                disabled={isListening}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 10,
+                  padding: '12px 18px',
+                  borderRadius: 20,
+                  background: isListening
+                    ? 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)'
+                    : 'linear-gradient(135deg, rgba(45, 212, 191, 0.15) 0%, rgba(13, 148, 136, 0.25) 100%)',
+                  border: isListening ? '1px solid #dc2626' : '1px solid rgba(45, 212, 191, 0.4)',
+                  color: isListening ? '#ffffff' : 'var(--accent-teal, #2dd4bf)',
+                  fontWeight: 800,
+                  fontSize: '0.88rem',
+                  cursor: 'pointer',
+                  boxShadow: isListening ? '0 0 15px rgba(220, 38, 38, 0.4)' : 'none',
+                }}
+              >
+                {isListening ? (
+                  <>
+                    <motion.span animate={{ scale: [1, 1.3, 1] }} transition={{ repeat: Infinity, duration: 1 }}>
+                      <MicOff size={20} color="#fff" />
+                    </motion.span>
+                    <span>{lang === 'hi' ? 'सुन रहे हैं... (Listening)' : 'Listening for voice command...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Mic size={20} />
+                    <span>{lang === 'hi' ? '🎙️ बोलकर दवा दर्ज करें (Voice Log)' : '🎙️ Voice-Guided Dose Logger'}</span>
+                  </>
+                )}
+              </button>
+            </div>
 
             {totalDosesScheduled > 0 ? (
               <div className="adherence-dashboard-card">

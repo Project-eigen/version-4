@@ -1,11 +1,16 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Settings, FileText, Award } from 'lucide-react'
+import { Settings, FileText, Award, ShieldAlert } from 'lucide-react'
 import BrandLogo from './BrandLogo'
+import EmergencyCard from './EmergencyCard'
 import { useLanguage } from '../context/LanguageContext'
+import { useAuth } from '../context/AuthContext'
 
 export default function Header() {
   const navigate = useNavigate()
   const { t } = useLanguage()
+  const { user } = useAuth()
+  const [showEmergency, setShowEmergency] = useState(false)
 
   return (
     <header className="app-header" role="banner">
@@ -19,6 +24,17 @@ export default function Header() {
       </button>
 
       <div className="header-actions">
+        <button
+          type="button"
+          onClick={() => setShowEmergency(true)}
+          className="icon-btn"
+          aria-label="Emergency Medical Card"
+          title="Emergency Medical Card"
+          style={{ color: '#dc2626' }}
+        >
+          <ShieldAlert size={20} aria-hidden="true" />
+        </button>
+
         <button
           type="button"
           onClick={() => navigate('/history')}
@@ -49,6 +65,13 @@ export default function Header() {
           <Settings size={19} aria-hidden="true" />
         </button>
       </div>
+
+      <EmergencyCard
+        open={showEmergency}
+        onClose={() => setShowEmergency(false)}
+        user={user}
+        medicines={[]}
+      />
     </header>
   )
 }

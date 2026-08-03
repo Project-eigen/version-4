@@ -798,7 +798,7 @@ export default function Cabinet() {
                     }}
                   >
                     <Mic size={12} />
-                    <span>{lang === 'hi' ? '🎙️ वॉइस लॉग' : '🎙️ Voice Log'}</span>
+                    <span>{lang === 'hi' ? 'वॉइस लॉग' : 'Voice Log'}</span>
                   </button>
                 </button>
               </div>

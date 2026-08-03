@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { ShieldAlert, PhoneCall, Printer, AlertTriangle, Pill } from 'lucide-react'
 import Modal from './Modal'
 import { useLanguage } from '../context/LanguageContext'
@@ -15,6 +15,7 @@ interface EmergencyCardProps {
 export default function EmergencyCard({ open, onClose, user, medicines: initialMedicines = [] }: EmergencyCardProps) {
   const { lang } = useLanguage()
   const [activeMeds, setActiveMeds] = useState<MedicineEntry[]>(initialMedicines)
+  const containerRef = useRef<HTMLDivElement>(null)
   const [emergencyContact, setEmergencyContact] = useState(() => {
     return localStorage.getItem(`emergency_phone_${user?.id}`) || '+91 98765 43210'
   })
@@ -28,6 +29,9 @@ export default function EmergencyCard({ open, onClose, user, medicines: initialM
 
   useEffect(() => {
     if (!open || !user?.id) return
+    if (containerRef.current) {
+      containerRef.current.scrollTop = 0
+    }
     const tzOffset = new Date().getTimezoneOffset()
     const localDate = new Date().toLocaleDateString('sv-SE')
     api.get(`/medicine/cabinet?user_id=${user.id}&tz_offset=${tzOffset}&local_date=${localDate}`)
@@ -54,7 +58,18 @@ export default function EmergencyCard({ open, onClose, user, medicines: initialM
 
   return (
     <Modal open={open} onClose={onClose} title="" variant="sheet">
-      <div style={{ maxWidth: 520, margin: '0 auto', color: 'var(--text-primary)' }}>
+      <div
+        ref={containerRef}
+        style={{
+          maxWidth: 520,
+          maxHeight: '72vh',
+          overflowY: 'auto',
+          margin: '0 auto',
+          paddingRight: 4,
+          color: 'var(--text-primary)',
+          scrollBehavior: 'smooth',
+        }}
+      >
         {/* Top Emergency Card Shield Header */}
         <div
           style={{

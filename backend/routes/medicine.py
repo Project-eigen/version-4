@@ -1246,10 +1246,9 @@ def get_weekly_report():
 
         active_meds = []
         for entry in all_entries:
-            med_created = (entry.created_at - timedelta(minutes=tz_offset)).date()
-            if target_d < med_created:
-                continue
+            # Match active medicines in cabinet for the user
             if entry.days is not None:
+                med_created = (entry.created_at - timedelta(minutes=tz_offset)).date()
                 expiry = med_created + timedelta(days=entry.days)
                 if target_d >= expiry:
                     continue
@@ -1319,12 +1318,12 @@ def get_weekly_report():
     total_logs_count = len(all_logs)
     is_new_user = (total_logs_count == 0)
 
-    if is_new_user:
-        overall_score = 0
+    if total_weekly_scheduled == 0:
+        overall_score = 100
     elif tracked_scores:
         overall_score = round((sum(tracked_scores) / len(tracked_scores)) * 100)
     else:
-        overall_score = 0
+        overall_score = 100
 
     # Compute slot adherence percentages & find best/weakest slots
     slot_analytics = {}

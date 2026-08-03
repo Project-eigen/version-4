@@ -69,7 +69,7 @@ interface ReportData {
 
 export default function Report() {
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, activeMemberId } = useAuth()
   const { lang, t } = useLanguage()
   const cardRef = useRef<HTMLDivElement>(null)
 
@@ -91,10 +91,11 @@ export default function Report() {
       setLoading(true)
       try {
         const tzOffset = new Date().getTimezoneOffset()
+        const targetId = activeMemberId || user?.id || 0
 
         const [reportRes, streakRes, membersRes] = await Promise.all([
-          api.get(`/medicine/report?tz_offset=${tzOffset}`),
-          api.get(`/medicine/streak?tz_offset=${tzOffset}`).catch(() => ({ data: { streak_days: 0 } })),
+          api.get(`/medicine/report?user_id=${targetId}&tz_offset=${tzOffset}`),
+          api.get(`/medicine/streak?user_id=${targetId}&tz_offset=${tzOffset}`).catch(() => ({ data: { streak_days: 0 } })),
           api.get('/family/members').catch(() => ({ data: { members: [] } })),
         ])
 
@@ -109,15 +110,15 @@ export default function Report() {
     }
 
     loadData()
-  }, [])
+  }, [activeMemberId, user?.id])
 
   // Calculate Tier Badge & Status Feedback
   const getAdherenceTier = (pct: number) => {
-    if (pct >= 95) {
+    if (report?.weekly_scheduled === 0 || pct >= 95) {
       return {
         badge: 'S+ TIER',
         label: lang === 'hi' ? 'उत्कृष्ट पालन (Perfect)' : 'Perfect Adherence',
-        desc: lang === 'hi' ? 'शानदार! आपने इस सप्ताह लगभग सभी दवाएं सही समय पर लीं।' : 'Outstanding! You maintained near-flawless medicine schedule compliance this week.',
+        desc: lang === 'hi' ? 'शानदार! आपकी दिनचर्या पूरी तरह से ट्रैक पर है।' : 'Outstanding! You maintained near-flawless medicine schedule compliance.',
         color: '#2dd4bf',
         bg: 'rgba(45, 212, 191, 0.15)',
         border: 'rgba(45, 212, 191, 0.4)',

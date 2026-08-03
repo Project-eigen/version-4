@@ -161,7 +161,6 @@ def call_openrouter_vision(prompt: str, pil_images: list, model_name: str, api_k
 
 
 @medicine_bp.route("/api/medicine/scan", methods=["POST"])
-@limiter.limit("10 per hour", error_message="Scan limit reached. You can scan up to 10 prescriptions per hour. Please try again later.")
 def scan_medicine():
     """Scan 1 or more prescription/box images using Qwen2.5-VL 72B / Claude 3.5 Sonnet (via OpenRouter) or Gemini Flash fallback."""
     user = get_current_user()

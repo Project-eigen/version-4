@@ -58,6 +58,8 @@ class User(db.Model):
     notif_slots_json = db.Column(db.Text, default='["morning","afternoon","evening","night"]')
     # JSON map of custom slot times e.g. {"morning":"08:00","night":"22:00"}
     notif_times_json = db.Column(db.Text, default='{"morning":"08:00","afternoon":"13:00","evening":"18:00","night":"22:00"}')
+    # Preferred language code ('en' or 'hi')
+    language = db.Column(db.String(10), default='en')
 
     # Relationships
     medicines = db.relationship("MedicineEntry", backref="user", lazy=True)
@@ -74,6 +76,7 @@ class User(db.Model):
             "telegram_linked": self.telegram_chat_id is not None,
             "push_enabled": self.push_subscription_json is not None,
             "timezone_name": self.timezone_name,
+            "language": self.language or "en",
         }
 
 

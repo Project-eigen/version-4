@@ -1,9 +1,11 @@
 import { useNavigate } from 'react-router-dom'
 import { Settings, FileText, Award } from 'lucide-react'
 import BrandLogo from './BrandLogo'
+import { useLanguage } from '../context/LanguageContext'
 
 export default function Header() {
   const navigate = useNavigate()
+  const { t } = useLanguage()
 
   return (
     <header className="app-header" role="banner">
@@ -21,8 +23,8 @@ export default function Header() {
           type="button"
           onClick={() => navigate('/history')}
           className="icon-btn"
-          aria-label="Prescription History"
-          title="Prescription History Archive"
+          aria-label={t('historyLabel')}
+          title={t('historyLabel')}
         >
           <FileText size={19} aria-hidden="true" />
         </button>
@@ -31,8 +33,8 @@ export default function Header() {
           type="button"
           onClick={() => navigate('/report')}
           className="icon-btn"
-          aria-label="Weekly Report"
-          title="Weekly Report Card"
+          aria-label={t('reportLabel')}
+          title={t('reportLabel')}
         >
           <Award size={19} aria-hidden="true" />
         </button>
@@ -41,8 +43,8 @@ export default function Header() {
           type="button"
           onClick={() => navigate('/settings')}
           className="icon-btn"
-          aria-label="Open settings"
-          title="Settings"
+          aria-label={t('settingsLabel')}
+          title={t('settingsLabel')}
         >
           <Settings size={19} aria-hidden="true" />
         </button>

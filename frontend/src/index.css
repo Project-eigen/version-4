@@ -84,6 +84,10 @@
 
   --danger-color: #dc2626;
   --danger-bg: rgba(220, 38, 38, 0.08);
+
+  /* Glass surfaces (light mode equivalents) */
+  --bg-glass: rgba(255, 255, 255, 0.85);
+  --bg-glass-card: rgba(248, 250, 252, 0.9);
 }
 
 /* ===================== DARK THEME TOKENS ===================== */
@@ -2328,6 +2332,12 @@ p, .modal-subtitle, .auth-subtitle, .confirm-dialog-desc {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+@keyframes pulse-border {
+  0%, 100% { border-color: rgba(13, 148, 136, 0.25); box-shadow: 0 0 0 0 rgba(13, 148, 136, 0); }
+  50%       { border-color: rgba(13, 148, 136, 0.55); box-shadow: 0 0 0 4px rgba(13, 148, 136, 0.08); }
+}
+
 
 .loading-overlay {
   display: flex;

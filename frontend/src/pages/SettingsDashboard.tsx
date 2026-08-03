@@ -9,7 +9,7 @@ import api from '../api/client'
 import { Bell, RefreshCw, LogOut, Info, Globe, Moon } from 'lucide-react'
 import { getStoredTheme, applyTheme } from '../utils/theme'
 import type { ThemeMode } from '../utils/theme'
-import { useLanguage } from '../utils/i18n'
+import { useLanguage } from '../context/LanguageContext'
 import type { Language } from '../utils/i18n'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -77,6 +77,8 @@ export default function SettingsDashboard() {
   const handleLangChange = (mode: Language) => {
     setLanguage(mode)
     showToast(mode === 'hi' ? 'भाषा बदलकर हिंदी कर दी गई' : 'Language set to English', 'success')
+    // Persist language choice to backend so push/Telegram notifications are sent in chosen language
+    api.post('/notifications/settings', { language: mode }).catch(() => {})
   }
 
   // Unified loading and fetch status

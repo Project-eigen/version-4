@@ -7,7 +7,7 @@ export function getStoredTheme(): ThemeMode {
   if (stored === 'light' || stored === 'dark' || stored === 'system') {
     return stored
   }
-  return 'system'
+  return 'light'
 }
 
 export function applyTheme(theme: ThemeMode) {

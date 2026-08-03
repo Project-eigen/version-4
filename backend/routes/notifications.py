@@ -80,6 +80,7 @@ def get_settings():
         "slots": slots,
         "times": times,
         "timezone_name": user.timezone_name,
+        "language": user.language or "en",
     })
 
 
@@ -90,6 +91,11 @@ def update_settings():
         return jsonify({"error": "Unauthorized"}), 401
 
     data = request.get_json(silent=True) or {}
+
+    if "language" in data:
+        lang = str(data["language"]).strip().lower()
+        if lang in ("en", "hi"):
+            user.language = lang
 
     if "slots" in data:
         cleaned = [s for s in data["slots"] if s in VALID_SLOTS]
@@ -201,11 +207,200 @@ def unlink_telegram():
 @notifications_bp.route("/api/telegram/webhook", methods=["POST"])
 def telegram_webhook():
     """
-    Receives all inbound messages/updates from Telegram servers.
-    No authentication is required here (Telegram sends a secret token in the URL
-    in production, but for simplicity we rely on the unpredictable endpoint URL).
+    Receives all inbound updates from Telegram servers.
+    Handles:
+      - message.text  : /start, /stop, 6-digit link codes
+      - callback_query: inline button taps (e.g. "Log all doses")
     """
     data = request.get_json(silent=True) or {}
+    token = current_app.config.get("TELEGRAM_BOT_TOKEN", "")
+
+    def _send(chat_id: str, msg: str) -> None:
+        if not token:
+            return
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"},
+                timeout=10,
+            )
+        except Exception as e:
+            current_app.logger.warning("Telegram send failed for chat %s: %s", chat_id, e)
+
+    def _answer_callback(callback_query_id: str, text: str = "", alert: bool = False) -> None:
+        """Acknowledge a callback query (removes spinner from button)."""
+        if not token:
+            return
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{token}/answerCallbackQuery",
+                json={"callback_query_id": callback_query_id, "text": text, "show_alert": alert},
+                timeout=5,
+            )
+        except Exception as e:
+            current_app.logger.warning("answerCallbackQuery failed: %s", e)
+
+    def _edit_message(chat_id: str, message_id: int, new_text: str) -> None:
+        """Edit an existing message to replace the inline keyboard with a confirmation."""
+        if not token:
+            return
+        try:
+            requests.post(
+                f"https://api.telegram.org/bot{token}/editMessageText",
+                json={
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": new_text,
+                    "parse_mode": "HTML",
+                    "reply_markup": {"inline_keyboard": []},  # Remove buttons
+                },
+                timeout=10,
+            )
+        except Exception as e:
+            current_app.logger.warning("editMessageText failed for chat %s: %s", chat_id, e)
+
+    # ── Handle inline button callback_query ──────────────────────────────────
+    callback_query = data.get("callback_query", {})
+    if callback_query:
+        cq_id      = callback_query.get("id", "")
+        cq_data    = callback_query.get("data", "")
+        cq_chat_id = str(callback_query.get("from", {}).get("id", ""))
+        cq_msg     = callback_query.get("message", {})
+        cq_msg_id  = cq_msg.get("message_id")
+
+        # "log_all:{slot}:{YYYY-MM-DD}"
+        if cq_data.startswith("log_all:"):
+            parts = cq_data.split(":")
+            if len(parts) != 3:
+                _answer_callback(cq_id, "❌ Invalid button data.", alert=True)
+                return jsonify({"ok": True})
+
+            _, slot, date_str = parts
+
+            # Look up the user by chat_id
+            acting_user = User.query.filter_by(telegram_chat_id=cq_chat_id).first()
+            if not acting_user:
+                _answer_callback(cq_id, "❌ Account not linked.", alert=True)
+                return jsonify({"ok": True})
+
+            # Parse date
+            try:
+                from datetime import date as _date
+                target_date = _date.fromisoformat(date_str)
+            except ValueError:
+                _answer_callback(cq_id, "❌ Invalid date in button.", alert=True)
+                return jsonify({"ok": True})
+
+            # Determine which users' medicines to log (family or solo)
+            from models import MedicineEntry, MedicineLog
+            from datetime import timedelta
+
+            if acting_user.family_id:
+                target_ids = [
+                    uid for (uid,) in db.session.query(User.id)
+                    .filter_by(family_id=acting_user.family_id).all()
+                ]
+            else:
+                target_ids = [acting_user.id]
+
+            # Fetch due medicines for this slot + date
+            medicines = []
+            all_meds = MedicineEntry.query.filter(
+                MedicineEntry.user_id.in_(target_ids)
+            ).all()
+            for med in all_meds:
+                if slot not in (med.schedule or []):
+                    continue
+                if med.days is not None:
+                    end_date = med.created_at.date() + timedelta(days=med.days)
+                    if target_date >= end_date:
+                        continue
+                medicines.append(med)
+
+            if not medicines:
+                _answer_callback(cq_id, "ℹ️ No doses found for this slot.", alert=False)
+                return jsonify({"ok": True})
+
+            # Log each medicine (idempotent — skip already-logged)
+            logged_count = 0
+            for med in medicines:
+                existing = MedicineLog.query.filter_by(
+                    entry_id=med.id,
+                    time_slot=slot,
+                    date=target_date,
+                ).first()
+                if not existing:
+                    db.session.add(MedicineLog(
+                        entry_id=med.id,
+                        user_id=med.user_id,
+                        time_slot=slot,
+                        date=target_date,
+                    ))
+                    logged_count += 1
+
+            try:
+                db.session.commit()
+            except Exception as exc:
+                db.session.rollback()
+                current_app.logger.error("Telegram log_all commit failed: %s", exc)
+                _answer_callback(cq_id, "❌ Server error — please try again.", alert=True)
+                return jsonify({"ok": True})
+
+            # Answer + edit the original message
+            total = len(medicines)
+            already = total - logged_count
+            is_hindi = getattr(acting_user, 'language', 'en') == 'hi'
+
+            if is_hindi:
+                if logged_count == total:
+                    toast = f"✅ सभी {total} दवाइयां दर्ज की गईं!"
+                    edit_text = (
+                        cq_msg.get("text", "💊 दवाईसाथी रिमाइंडर").split("\n\n")[0]
+                        + f"\n\n✅ <b>सभी {total} दवाइयां दर्ज की गईं</b> (टेलीग्राम द्वारा)"
+                    )
+                elif logged_count > 0:
+                    toast = f"✅ {logged_count} दवाइयां दर्ज हुईं ({already} पहले से ली गई थीं)।"
+                    edit_text = (
+                        cq_msg.get("text", "💊 दवाईसाथी रिमाइंडर").split("\n\n")[0]
+                        + f"\n\n✅ <b>{logged_count} दवाइयां दर्ज हुईं</b> ({already} पहले से ली गई थीं)"
+                    )
+                else:
+                    toast = "ℹ️ सभी दवाइयां पहले ही दर्ज थीं।"
+                    edit_text = (
+                        cq_msg.get("text", "💊 दवाईसाथी रिमाइंडर").split("\n\n")[0]
+                        + "\n\nℹ️ <i>सभी दवाइयां पहले ही दर्ज थीं।</i>"
+                    )
+            else:
+                if logged_count == total:
+                    toast = f"✅ All {total} doses logged!"
+                    edit_text = (
+                        cq_msg.get("text", "💊 DawaiSathi Reminder").split("\n\n")[0]
+                        + f"\n\n✅ <b>All {total} doses logged</b> via Telegram"
+                    )
+                elif logged_count > 0:
+                    toast = f"✅ {logged_count} new dose{'s' if logged_count != 1 else ''} logged ({already} already done)."
+                    edit_text = (
+                        cq_msg.get("text", "💊 DawaiSathi Reminder").split("\n\n")[0]
+                        + f"\n\n✅ <b>{logged_count} dose{'s' if logged_count != 1 else ''} logged</b> ({already} already done)"
+                    )
+                else:
+                    toast = "ℹ️ All doses were already logged."
+                    edit_text = (
+                        cq_msg.get("text", "💊 DawaiSathi Reminder").split("\n\n")[0]
+                        + "\n\nℹ️ <i>All doses were already logged.</i>"
+                    )
+
+            _answer_callback(cq_id, toast, alert=False)
+            if cq_msg_id:
+                _edit_message(cq_chat_id, cq_msg_id, edit_text)
+
+            return jsonify({"ok": True})
+
+        # Unknown callback
+        _answer_callback(cq_id, "")
+        return jsonify({"ok": True})
+
+    # ── Handle regular text messages ─────────────────────────────────────────
     message = data.get("message", {})
     if not message:
         return jsonify({"ok": True})
@@ -217,17 +412,7 @@ def telegram_webhook():
         return jsonify({"ok": True})
 
     def _reply(msg: str) -> None:
-        token = current_app.config.get("TELEGRAM_BOT_TOKEN", "")
-        if not token:
-            return
-        try:
-            requests.post(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"},
-                timeout=10,
-            )
-        except Exception as e:
-            current_app.logger.warning(f"Telegram reply failed for chat {chat_id}: {e}")
+        _send(chat_id, msg)
 
     # /start command
     if text == "/start":
@@ -266,6 +451,7 @@ def telegram_webhook():
                 f"✅ <b>Linked successfully!</b>\n\n"
                 f"Hi {target_user.name}! 👋\n"
                 f"You'll now get medicine reminders here.\n\n"
+                f"💡 <i>Tap the <b>Log all doses</b> button on any reminder to log doses without opening the app.</i>\n\n"
                 f"Send /stop anytime to unlink."
             )
         else:

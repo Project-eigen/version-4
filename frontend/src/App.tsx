@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { LanguageProvider } from './context/LanguageContext'
 import { AnimatePresence } from 'framer-motion'
 import PageTransition from './components/PageTransition'
 import api from './api/client'
@@ -131,7 +132,9 @@ export default function App() {
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AuthProvider>
-        <AppRoutes />
+        <LanguageProvider>
+          <AppRoutes />
+        </LanguageProvider>
       </AuthProvider>
     </BrowserRouter>
   )

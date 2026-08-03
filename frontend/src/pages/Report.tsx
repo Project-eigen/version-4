@@ -135,7 +135,7 @@ export default function Report() {
       onSelectMember={() => {}}
     >
       <div style={{ maxWidth: 560, margin: '0 auto', padding: '16px 16px 100px' }}>
-        {/* Top bar */}
+        {/* Top bar — theme-aware chrome */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <button
             onClick={() => navigate(-1)}
@@ -143,13 +143,14 @@ export default function Report() {
               display: 'flex',
               alignItems: 'center',
               gap: 6,
-              background: 'var(--bg-glass)',
+              background: 'var(--bg-surface)',
               border: '1px solid var(--border-subtle)',
               padding: '8px 14px',
               borderRadius: 'var(--radius-full)',
               color: 'var(--text-primary)',
               fontWeight: 600,
               cursor: 'pointer',
+              fontSize: '0.85rem',
             }}
           >
             <ArrowLeft size={16} /> Back
@@ -159,7 +160,7 @@ export default function Report() {
             <button
               onClick={handleCopyText}
               style={{
-                background: 'var(--bg-glass)',
+                background: 'var(--bg-surface)',
                 border: '1px solid var(--border-subtle)',
                 color: 'var(--text-primary)',
                 padding: '8px 12px',
@@ -190,12 +191,14 @@ export default function Report() {
                 alignItems: 'center',
                 gap: 6,
                 fontSize: '0.82rem',
+                opacity: sharing || loading ? 0.7 : 1,
               }}
             >
-              <Share2 size={15} /> {sharing ? 'Generating...' : 'Share Card'}
+              <Share2 size={15} /> {sharing ? 'Generating…' : 'Share Card'}
             </button>
           </div>
         </div>
+
 
         {/* Shareable Weekly Adherence Report Card */}
         {loading ? (

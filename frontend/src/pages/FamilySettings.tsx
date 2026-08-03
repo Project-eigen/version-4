@@ -31,6 +31,9 @@ export default function FamilySettings() {
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [processingReqId, setProcessingReqId] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
+  // Tracks whether the current join modal was opened via a WhatsApp/invite link
+  // (vs. manually entering a code). Link-originated joins are auto-approved.
+  const [fromLink, setFromLink] = useState(false)
 
   const otpRefs = [
     useRef<HTMLInputElement>(null),
@@ -72,9 +75,12 @@ export default function FamilySettings() {
     const searchParams = new URLSearchParams(window.location.search)
     const code = searchParams.get('join_code') || searchParams.get('code')
     if (code && code.length === 6 && /^\d+$/.test(code)) {
+      // Clean the URL so the code doesn't linger in browser history
+      window.history.replaceState({}, '', window.location.pathname)
       setOtp(code.split(''))
+      setFromLink(true)
       setShowJoinModal(true)
-      showToast('1-Tap invite link loaded! Confirm below to join.')
+      showToast('1-Tap invite link loaded! Tap "Join now" to enter instantly.', 'success')
     }
   }, [])
 
@@ -176,16 +182,27 @@ export default function FamilySettings() {
     setStatus('loading')
     setErrorMsg('')
     try {
-      const res = await api.post('/family/join-by-code', { code: codeStr })
-      if (res.data.code === 'ALREADY_PENDING') {
+      // Auto-approve is only used when the code came from a WhatsApp/invite link.
+      // Manual code entry always goes through the standard approval flow.
+      const payload: Record<string, unknown> = { code: codeStr }
+      if (fromLink) payload.auto_approve = true
+
+      const res = await api.post('/family/join-by-code', payload)
+
+      if (res.data.status === 'approved') {
+        // Auto-approved (link click) — user is now in the family
+        setRequestedFamilyName(res.data.family_name || 'your family')
+        setStatus('success')
+        showToast(`✓ Joined ${res.data.family_name || 'family'} instantly!`, 'success')
+      } else if (res.data.code === 'ALREADY_PENDING') {
         setRequestedFamilyName(res.data.family_name || 'your family')
         setStatus('success')
       } else {
         setRequestedFamilyName(res.data.family_name || 'your family')
         setStatus('success')
-        showToast('Join request sent successfully!', 'success')
+        showToast('Join request sent — waiting for approval.', 'success')
       }
-      // Trigger a soft refresh of current page to show request waiting state if applicable
+
       await refreshUser()
       await fetchFamilyData({ silent: true })
     } catch (err: any) {
@@ -464,17 +481,97 @@ export default function FamilySettings() {
         ) : isSolo ? (
           /* Solo State: user has family but they are the only member */
           <div className="page-body" style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: 16 }}>
-            <div style={{ textAlign: 'center', marginTop: 12 }}>
-              <div 
-                style={{ 
-                  width: 56, 
-                  height: 56, 
-                  borderRadius: '50%', 
-                  background: 'var(--accent-teal-glow)', 
-                  display: 'inline-flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center', 
-                  marginBottom: 12 
+
+            {/* ── Pending join requests — visible even in solo state ──────────── */}
+            {requests.length > 0 && (
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, rgba(13,148,136,0.08) 0%, rgba(6,182,212,0.06) 100%)',
+                  border: '1.5px solid rgba(13, 148, 136, 0.25)',
+                  borderRadius: 'var(--radius-lg)',
+                  padding: 16,
+                  animation: 'pulse-border 2s ease-in-out infinite',
+                }}
+              >
+                <h2
+                  style={{
+                    color: 'var(--accent-teal)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    marginBottom: 12,
+                    fontSize: 'var(--text-sm)',
+                    fontWeight: 700,
+                  }}
+                >
+                  <Mail size={16} /> Join Requests ({requests.length})
+                </h2>
+                {requests.map((req) => (
+                  <div
+                    key={req.id}
+                    style={{
+                      marginBottom: 10,
+                      padding: '10px 12px',
+                      background: 'var(--bg-secondary)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-subtle)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {req.requester?.name || req.requester?.email || 'Unknown User'}
+                      </div>
+                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {req.requester?.email || ''}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        onClick={() => handleAccept(req.id)}
+                        disabled={processingReqId === req.id}
+                        style={{
+                          width: 36, height: 36, borderRadius: '50%', border: 'none',
+                          background: '#dcfce7', color: '#15803d',
+                          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}
+                        aria-label="Accept join request"
+                      >
+                        {processingReqId === req.id
+                          ? <span className="loading-spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
+                          : <Check size={16} />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleReject(req.id)}
+                        disabled={processingReqId === req.id}
+                        style={{
+                          width: 36, height: 36, borderRadius: '50%', border: 'none',
+                          background: '#fee2e2', color: '#b91c1c',
+                          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}
+                        aria-label="Reject join request"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* ─────────────────────────────────────────────────────────────── */}
+
+            <div style={{ textAlign: 'center', marginTop: requests.length > 0 ? 0 : 12 }}>
+              <div
+                style={{
+                  width: 56, height: 56, borderRadius: '50%',
+                  background: 'var(--accent-teal-glow)',
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  marginBottom: 12,
                 }}
               >
                 <Users size={28} color="var(--accent-teal)" />
@@ -542,6 +639,7 @@ export default function FamilySettings() {
                 className="btn-ghost"
                 onClick={() => {
                   setOtp(['', '', '', '', '', ''])
+                  setFromLink(false)
                   setStatus('idle')
                   setErrorMsg('')
                   setShowJoinModal(true)
@@ -789,6 +887,7 @@ export default function FamilySettings() {
         open={showJoinModal}
         onClose={() => {
           setShowJoinModal(false)
+          setFromLink(false)
           setStatus('idle')
           setErrorMsg('')
         }}
@@ -814,16 +913,21 @@ export default function FamilySettings() {
               <Check size={24} />
             </div>
             <h3 style={{ fontSize: 'var(--text-lg)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
-              Request Sent Successfully!
+              {fromLink ? 'Joined Successfully! 🎉' : 'Request Sent!'}
             </h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)', lineHeight: 1.6, marginBottom: 24 }}>
-              Your join request has been sent to <strong>{requestedFamilyName}</strong>. 
-              Please ask a family member in that group to open DawaiSathi and accept your request in their Family tab.
+              {fromLink
+                ? <>You have joined <strong>{requestedFamilyName}</strong>. Head back to your home screen to see the family cabinet.</>
+                : <>Your join request has been sent to <strong>{requestedFamilyName}</strong>. Ask a family member to open DawaiSathi and accept your request in their Family tab.</>
+              }
             </p>
             <button
               type="button"
               className="btn-primary"
-              onClick={() => setShowJoinModal(false)}
+              onClick={() => {
+                setShowJoinModal(false)
+                setFromLink(false)
+              }}
               style={{ width: '100%' }}
             >
               Got it
@@ -883,6 +987,8 @@ export default function FamilySettings() {
               >
                 {status === 'loading' ? (
                   <span className="loading-spinner" style={{ width: 18, height: 18, borderWidth: 2 }} />
+                ) : fromLink ? (
+                  'Join now'
                 ) : (
                   'Send join request'
                 )}
@@ -892,6 +998,7 @@ export default function FamilySettings() {
                 className="btn-ghost"
                 onClick={() => {
                   setShowJoinModal(false)
+                  setFromLink(false)
                   setStatus('idle')
                   setErrorMsg('')
                 }}

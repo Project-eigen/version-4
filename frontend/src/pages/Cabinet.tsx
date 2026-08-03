@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { useLanguage } from '../context/LanguageContext'
 import AppLayout from '../components/AppLayout'
 import ConfirmDialog from '../components/ConfirmDialog'
 import SkeletonRow from '../components/SkeletonRow'
@@ -102,6 +103,7 @@ interface StreakData {
 }
 
 function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEdit, onOpenInfo }: MedCardProps) {
+  const { t } = useLanguage()
   const isLogged = med.today_logs?.includes(slot) ?? false
   const [loggingState, setLoggingState] = useState<LoggingState>(
     () => getLoggingState(slotTime, isLogged)
@@ -182,12 +184,12 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
   // Build hold-log-bar label based on state
   let barLabel: React.ReactNode
   if (loggingState === 'logged') {
-    barLabel = '✓ Dose logged'
+    barLabel = t('doseLogged')
   } else if (loggingState === 'dormant') {
     barLabel = (
       <>
         <Clock size={13} style={{ marginRight: 6, opacity: 0.7 }} aria-hidden="true" />
-        Available at {formatSlotTime(slotTime)}
+        {t('availableAt')} {formatSlotTime(slotTime)}
       </>
     )
   } else {
@@ -203,9 +205,9 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
             <ChevronRight size={15} style={{ marginLeft: -8 }} />
           </motion.span>
         )}
-        Swipe to log dose
+        {t('swipeToLog')}
       </span>
-    ) : 'Click to log dose'
+    ) : t('clickToLog')
   }
 
   // ── Touch: swipe-to-log via framer-motion drag ────────────────────────────
@@ -389,6 +391,7 @@ function MedicineCard({ med, slot, slotTime, onLog, onImageClick, onDelete, onEd
 
 export default function Cabinet() {
   const { user, activeMemberId, setActiveMemberId } = useAuth()
+  const { t } = useLanguage()
   const [members, setMembers] = useState<User[]>([])
   const [medicines, setMedicines] = useState<MedicineEntry[]>([])
   const [expiredMedicines, setExpiredMedicines] = useState<MedicineEntry[]>([])
@@ -402,6 +405,7 @@ export default function Cabinet() {
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [infoModalMed, setInfoModalMed] = useState<{ name: string; dosage?: string } | null>(null)
   const hasFetchedOnce = useRef(false)
+  const didInitialScroll = useRef(false)
   // Tracks in-flight log requests by "entryId-slot" key.
   // Prevents duplicate API calls when the user presses/holds rapidly
   // before the optimistic UI update has time to re-render the card.
@@ -488,23 +492,25 @@ export default function Cabinet() {
     }
   }, [activeMemberId, user?.id, fetchCabinet])
 
-  // Auto-scroll to closest active time slot containing medicines on load
+  // Auto-scroll to closest active time slot containing medicines — fires ONCE on
+  // initial load only. The didInitialScroll guard prevents it from re-firing after
+  // every optimistic dose-log update (which also mutates `medicines` state).
   useEffect(() => {
     if (loading || medicines.length === 0) return
+    if (didInitialScroll.current) return   // ← already scrolled; skip
 
     const timer = setTimeout(() => {
       const currentHour = new Date().getHours()
       let closestSlot: TimeSlot = 'morning'
-      
+
       if (currentHour >= 12 && currentHour < 16) closestSlot = 'afternoon'
       else if (currentHour >= 16 && currentHour < 20) closestSlot = 'evening'
       else if (currentHour >= 20 || currentHour < 6) closestSlot = 'night'
-      
+
       const order: TimeSlot[] = ['morning', 'afternoon', 'evening', 'night']
       const startIndex = order.indexOf(closestSlot)
       let targetSlot: TimeSlot | null = null
-      
-      // Look for the closest slot in time that actually has medicines to display
+
       for (let i = 0; i < 4; i++) {
         const checkSlot = order[(startIndex + i) % 4]
         if (medicines.some((m) => m.schedule.includes(checkSlot))) {
@@ -512,14 +518,16 @@ export default function Cabinet() {
           break
         }
       }
-      
+
       if (targetSlot) {
         const el = document.getElementById(`slot-section-${targetSlot}`)
         if (el) {
           el.scrollIntoView({ behavior: 'smooth', block: 'start' })
         }
       }
-    }, 450) // Settle render layout first
+
+      didInitialScroll.current = true  // ← mark done so further updates never scroll
+    }, 450)
 
     return () => clearTimeout(timer)
   }, [loading, medicines])
@@ -693,8 +701,8 @@ export default function Cabinet() {
         ) : medicines.length === 0 && expiredMedicines.length === 0 ? (
           <EmptyState
             icon={<Archive size={48} color="var(--text-muted)" />}
-            title="Cabinet is empty"
-            description="Tap + to scan a prescription or add medicines"
+            title={t('cabinetEmpty')}
+            description={t('cabinetEmptyDesc')}
           />
         ) : (
           <div style={{ paddingBottom: 16, opacity: isFetching ? 0.65 : 1, transition: 'opacity 0.2s ease' }}>
@@ -747,11 +755,11 @@ export default function Cabinet() {
                     <span style={{ width: 1.5, height: 12, backgroundColor: 'var(--border-subtle)' }} />
                   )}
                   <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                    Adherence: <strong style={{ color: 'var(--accent-teal)' }}>{adherencePercent}%</strong>
+                    {t('adherence')}: <strong style={{ color: 'var(--accent-teal)' }}>{adherencePercent}%</strong>
                   </span>
                   <span style={{ width: 1.5, height: 12, backgroundColor: 'var(--border-subtle)' }} />
                   <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                    Cabinet Safety:
+                    {t('cabinetSafety')}:
                     <span 
                       style={{ 
                         width: 8, 
@@ -832,7 +840,7 @@ export default function Cabinet() {
                   <span style={{ fontSize: 16, lineHeight: '20px' }}>⚠️</span>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 600, fontSize: 'var(--text-xs)', color: 'var(--danger-color, #dc2626)' }}>
-                      Missed yesterday
+                      {t('missedYesterday')}
                     </div>
                     <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-secondary)', marginTop: 2, lineHeight: 1.4 }}>
                       {streak.missed_yesterday.slice(0, 2).map((m, i) => (
@@ -860,11 +868,11 @@ export default function Cabinet() {
               <div className="adherence-dashboard-card">
                 <div className="adherence-info">
                   <div className="adherence-text-sec">
-                    <span className="adherence-score-title">Today&apos;s Adherence</span>
+                    <span className="adherence-score-title">{t('todaysAdherence')}</span>
                     <span className="adherence-score-val">{adherencePercent}%</span>
                   </div>
                   <span className="adherence-fraction">
-                    {totalDosesTaken} of {totalDosesScheduled} taken
+                    {totalDosesTaken} {t('of')} {totalDosesScheduled} {t('taken')}
                   </span>
                 </div>
                 <div className="adherence-progress-track">
@@ -887,13 +895,13 @@ export default function Cabinet() {
                 <span className="cabinet-hero-greeting">
                   {(() => {
                     const h = new Date().getHours()
-                    if (h < 12) return 'Good Morning'
-                    if (h < 17) return 'Good Afternoon'
-                    if (h < 21) return 'Good Evening'
-                    return 'Good Night'
+                    if (h < 12) return t('goodMorning')
+                    if (h < 17) return t('goodAfternoon')
+                    if (h < 21) return t('goodEvening')
+                    return t('goodNight')
                   })()}
                 </span>
-                <span className="cabinet-hero-title">Today&apos;s schedule</span>
+                <span className="cabinet-hero-title">{t('todaysSchedule')}</span>
               </div>
               <span className="cabinet-hero-date">
                 {new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
@@ -903,9 +911,9 @@ export default function Cabinet() {
             {medicines.length === 0 && (
               <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                 <Pill size={36} color="var(--text-muted)" style={{ margin: '0 auto 12px', display: 'block', opacity: 0.6 }} />
-                <p style={{ fontWeight: 600, margin: 0, fontSize: 'var(--text-sm)' }}>No active medicines today</p>
+                <p style={{ fontWeight: 600, margin: 0, fontSize: 'var(--text-sm)' }}>{t('noActiveMeds')}</p>
                 <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 4 }}>
-                  All your active medicines will show up here.
+                  {t('noActiveMedsDesc')}
                 </p>
               </div>
             )}
@@ -937,7 +945,7 @@ export default function Cabinet() {
                         {key === 'afternoon' && <Sun size={16} className="slot-icon afternoon" aria-hidden="true" />}
                         {key === 'evening' && <Sunset size={16} className="slot-icon evening" aria-hidden="true" />}
                         {key === 'night' && <Moon size={16} className="slot-icon night" aria-hidden="true" />}
-                        <span className="slot-label-text">{label}</span>
+                        <span className="slot-label-text">{t(key)}</span>
                         <span className="slot-time-pill">{timeDisplay}</span>
                       </div>
                       <span className="slot-count-badge">
@@ -965,7 +973,8 @@ export default function Cabinet() {
             })}
 
             {expiredMedicines.length > 0 && (
-              <div style={{ marginTop: 24, borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
+              <div style={{ marginTop: 28 }}>
+                {/* ── Archive section divider ─────────────────────── */}
                 <button
                   type="button"
                   onClick={() => setShowExpired(!showExpired)}
@@ -976,63 +985,172 @@ export default function Cabinet() {
                     width: '100%',
                     background: 'none',
                     border: 'none',
-                    padding: '8px 16px',
+                    padding: '0 16px 10px',
                     cursor: 'pointer',
-                    color: 'var(--text-secondary)',
-                    fontWeight: 600,
-                    fontSize: 'var(--text-sm)'
+                    borderTop: '1px solid var(--border-subtle)',
+                    paddingTop: 20,
                   }}
                 >
-                  <span>Past / Expired Medicines ({expiredMedicines.length})</span>
-                  <span style={{ fontSize: 'var(--text-xs)', transform: showExpired ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }}>▼</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                    <Archive size={16} style={{ color: '#92400e', opacity: 0.8 }} aria-hidden="true" />
+                    <span style={{
+                      fontWeight: 700,
+                      fontSize: 'var(--text-sm)',
+                      color: 'var(--text-secondary)',
+                    }}>
+                      {t('prescriptionArchive')}
+                    </span>
+                    <span style={{
+                      fontSize: '0.67rem',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: 999,
+                      background: 'rgba(146, 64, 14, 0.1)',
+                      border: '1px solid rgba(146, 64, 14, 0.2)',
+                      color: '#92400e',
+                      letterSpacing: '0.04em',
+                    }}>
+                      {expiredMedicines.length}
+                    </span>
+                  </div>
+                  <span style={{
+                    fontSize: 11,
+                    color: 'var(--text-muted)',
+                    transform: showExpired ? 'rotate(180deg)' : 'none',
+                    transition: 'transform 0.2s ease',
+                    display: 'inline-flex',
+                  }}>▼</span>
                 </button>
 
                 {showExpired && (
-                  <div style={{ padding: '8px 16px 0', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {expiredMedicines.map((med) => (
-                      <div 
-                        key={med.id} 
-                        style={{ 
-                          padding: 12, 
-                          background: 'var(--bg-secondary)', 
-                          border: '1px solid var(--border-subtle)', 
-                          borderRadius: 'var(--radius-md)',
-                          opacity: 0.75,
-                          position: 'relative'
-                        }}
-                      >
-                        <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>
-                          {med.name}
+                  <div style={{ padding: '4px 16px 24px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {expiredMedicines.map((med) => {
+                      // Compute expiry date string
+                      let expiryStr = ''
+                      if (med.days != null && med.created_at) {
+                        try {
+                          const exp = new Date(med.created_at)
+                          exp.setDate(exp.getDate() + med.days)
+                          expiryStr = exp.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                        } catch {}
+                      }
+
+                      const SLOT_ICONS: Record<string, string> = {
+                        morning: '🌅', afternoon: '☀️', evening: '🌆', night: '🌙'
+                      }
+
+                      return (
+                        <div
+                          key={med.id}
+                          style={{
+                            padding: '14px 14px 12px',
+                            background: 'rgba(146, 64, 14, 0.045)',
+                            border: '1.5px solid rgba(146, 64, 14, 0.18)',
+                            borderRadius: 16,
+                            position: 'relative',
+                            transition: 'border-color 0.15s ease',
+                          }}
+                        >
+                          {/* EXPIRED badge */}
+                          <div style={{
+                            position: 'absolute',
+                            top: 12,
+                            right: 50,
+                            fontSize: '0.62rem',
+                            fontWeight: 700,
+                            letterSpacing: '0.06em',
+                            textTransform: 'uppercase' as const,
+                            color: '#92400e',
+                            background: 'rgba(146, 64, 14, 0.1)',
+                            border: '1px solid rgba(146, 64, 14, 0.2)',
+                            borderRadius: 999,
+                            padding: '2px 8px',
+                          }}>
+                            {t('expiredBadge')}
+                          </div>
+
+                          {/* Action buttons */}
+                          <div style={{ position: 'absolute', right: 10, top: 8, display: 'flex', gap: 4 }}>
+                            <button
+                              type="button"
+                              onClick={() => setEditingMed(med)}
+                              style={{
+                                width: 28, height: 28, borderRadius: 8, padding: 0,
+                                background: 'var(--bg-surface)',
+                                border: '1px solid var(--border-subtle)',
+                                cursor: 'pointer',
+                                color: 'var(--text-muted)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}
+                              title="Edit"
+                              aria-label="Edit medicine"
+                            >
+                              <Pencil size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => requestDeleteMed(med.id, med.schedule[0] || 'morning')}
+                              style={{
+                                width: 28, height: 28, borderRadius: 8, padding: 0,
+                                background: 'rgba(220, 38, 38, 0.06)',
+                                border: '1px solid rgba(220, 38, 38, 0.18)',
+                                cursor: 'pointer',
+                                color: 'var(--danger-color)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}
+                              title="Delete"
+                              aria-label="Delete medicine"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+
+                          {/* Medicine name */}
+                          <div style={{
+                            fontWeight: 700,
+                            fontSize: 'var(--text-sm)',
+                            color: 'var(--text-primary)',
+                            paddingRight: 90,
+                            marginBottom: 6,
+                          }}>
+                            {med.name}
+                          </div>
+
+                          {/* Meta row */}
+                          <div style={{
+                            display: 'flex', flexWrap: 'wrap' as const, gap: '4px 12px',
+                            fontSize: '0.75rem', color: 'var(--text-muted)',
+                            marginBottom: (med.schedule?.length ?? 0) > 0 ? 8 : 0,
+                          }}>
+                            {med.dosage && <span>💊 {med.dosage}</span>}
+                            {med.days != null && <span>⏱ {med.days}-day course</span>}
+                            {expiryStr && <span style={{ color: '#92400e', fontWeight: 600 }}>Expired {expiryStr}</span>}
+                          </div>
+
+                          {/* Schedule pills */}
+                          {med.schedule?.length > 0 && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
+                              {med.schedule.map((s) => (
+                                <span key={s} style={{
+                                  fontSize: '0.68rem', fontWeight: 600,
+                                  padding: '2px 8px', borderRadius: 999,
+                                  background: 'rgba(146, 64, 14, 0.08)',
+                                  border: '1px solid rgba(146, 64, 14, 0.15)',
+                                  color: 'var(--text-muted)',
+                                }}>
+                                  {SLOT_ICONS[s] ?? ''} {s.charAt(0).toUpperCase() + s.slice(1)}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 4, display: 'flex', gap: 12 }}>
-                          {med.dosage && <span>Dosage: {med.dosage}</span>}
-                          {med.days != null && <span>Duration: {med.days} days (Expired)</span>}
-                        </div>
-                        
-                        <div style={{ position: 'absolute', right: 12, top: 12, display: 'flex', gap: 12 }}>
-                          <button
-                            type="button"
-                            onClick={() => setEditingMed(med)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 0 }}
-                            title="Edit"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => requestDeleteMed(med.id, med.schedule[0] || 'morning')}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger-color)', padding: 0 }}
-                            title="Delete"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>
             )}
+
           </div>
         )}
       </AppLayout>

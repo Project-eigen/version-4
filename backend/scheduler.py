@@ -142,12 +142,40 @@ def _check_user(user, now_utc: datetime, db, family_members: dict[int, list[int]
         # ── Telegram ──────────────────────────────────────────────────────────
         tg_ok = False
         if user.telegram_chat_id:
-            tg_text = (
-                f"💊 <b>DawaiSathi — {slot_label} Reminder ({time_display})</b>\n\n"
-                + "\n".join(med_lines)
-                + "\n\n<i>Open the app to log your dose ✓</i>"
+            is_hindi = getattr(user, 'language', 'en') == 'hi'
+            if is_hindi:
+                slot_hi_map = {
+                    "morning": "सुबह",
+                    "afternoon": "दोपहर",
+                    "evening": "शाम",
+                    "night": "रात",
+                }
+                slot_display = slot_hi_map.get(slot, slot_label)
+                tg_text = (
+                    f"💊 <b>दवाईसाथी — {slot_display} की याद ({time_display})</b>\n\n"
+                    + "\n".join(med_lines)
+                    + f"\n\n<i>अपनी दवाइयां दर्ज करने के लिए नीचे बटन पर टैप करें ✓</i>"
+                )
+                button_label = f"✅ सभी {len(medicines)} दवाइयां दर्ज करें"
+            else:
+                tg_text = (
+                    f"💊 <b>DawaiSathi — {slot_label} Reminder ({time_display})</b>\n\n"
+                    + "\n".join(med_lines)
+                    + f"\n\n<i>Tap the button below to log all {len(medicines)} dose{'s' if len(medicines) != 1 else ''} ✓</i>"
+                )
+                button_label = f"✅ Log all {len(medicines)} dose{'s' if len(medicines) != 1 else ''}"
+
+            callback_data = f"log_all:{slot}:{today.isoformat()}"
+            reply_markup = {
+                "inline_keyboard": [[
+                    {"text": button_label, "callback_data": callback_data}
+                ]]
+            }
+            from notification_helpers import send_telegram_message_with_buttons
+            tg_ok = send_telegram_message_with_buttons(
+                user.telegram_chat_id, tg_text, reply_markup
             )
-            tg_ok = send_telegram_message(user.telegram_chat_id, tg_text)
+
 
         # ── Web Push ──────────────────────────────────────────────────────────
         push_ok = False

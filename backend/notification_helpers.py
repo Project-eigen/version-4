@@ -33,6 +33,47 @@ def send_telegram_message(chat_id: str, text: str) -> bool:
         return False
 
 
+def send_telegram_message_with_buttons(
+    chat_id: str,
+    text: str,
+    reply_markup: dict,
+) -> bool:
+    """Send an HTML message with an inline keyboard to a Telegram user.
+
+    Args:
+        chat_id: Telegram chat ID.
+        text: HTML-formatted message body.
+        reply_markup: Telegram InlineKeyboardMarkup dict, e.g.
+            {"inline_keyboard": [[{"text": "…", "callback_data": "…"}]]}
+
+    Returns:
+        True on success, False on any error.
+    """
+    token = current_app.config.get("TELEGRAM_BOT_TOKEN", "")
+    if not token:
+        log.warning("TELEGRAM_BOT_TOKEN not configured — skipping Telegram send")
+        return False
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "HTML",
+                "reply_markup": reply_markup,
+            },
+            timeout=10,
+        )
+        if not resp.ok:
+            log.error("Telegram API error %s: %s", resp.status_code, resp.text)
+        return resp.ok
+    except Exception as exc:
+        log.error("Telegram send-with-buttons exception: %s", exc)
+        return False
+
+
+
+
 def send_push_notification(
     subscription_json: str,
     title: str,

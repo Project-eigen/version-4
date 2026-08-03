@@ -237,8 +237,34 @@ def respond_to_request():
         requester = User.query.get(join_req.requester_id)
         if not requester:
             return jsonify({"error": "Requester user no longer exists"}), 404
+
         if requester.family_id:
-            return jsonify({"error": "Requester is already in a family"}), 400
+            # Allow if requester is in a solo family (auto-created on login) — dissolve it.
+            # Block only if they're already in a real multi-person family.
+            requester_member_count = User.query.filter_by(family_id=requester.family_id).count()
+            if requester_member_count > 1:
+                return jsonify({"error": "Requester is already in a multi-person family"}), 400
+
+            # Dissolve the solo family atomically before re-assigning
+            old_family_id = requester.family_id
+            from models import MedicineEntry
+            MedicineEntry.query.filter_by(user_id=requester.id).update(
+                {"family_id": None}, synchronize_session=False
+            )
+            FamilyJoinRequest.query.filter(
+                (FamilyJoinRequest.requester_id == requester.id) |
+                (FamilyJoinRequest.responder_id == requester.id)
+            ).filter(
+                FamilyJoinRequest.id != join_req.id,
+                FamilyJoinRequest.status == "pending"
+            ).delete(synchronize_session=False)
+            requester.family_id = None
+            db.session.flush()
+            Family.query.filter_by(id=old_family_id).delete(synchronize_session=False)
+            current_app.logger.info(
+                "Dissolved solo family %s for requester %s (accepting join request %s)",
+                old_family_id, requester.id, join_req.id,
+            )
 
         requester.family_id = join_req.family_id
 

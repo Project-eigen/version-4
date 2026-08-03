@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useLanguage } from '../context/LanguageContext'
 import { Users, ScanLine, Archive, Plus, Pencil } from 'lucide-react'
 import Header from './Header'
 import FamilyPills from './FamilyPills'
@@ -27,6 +28,7 @@ export default function AppLayout({
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
+  const { t } = useLanguage()
   const [showAddMenu, setShowAddMenu] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
 
@@ -111,7 +113,7 @@ export default function AppLayout({
               </span>
             )}
           </div>
-          <span>Family</span>
+          <span>{t('family')}</span>
         </button>
 
         <button
@@ -135,14 +137,14 @@ export default function AppLayout({
           aria-current={currentTab === 'cabinet' ? 'page' : undefined}
         >
           <Archive size={20} aria-hidden="true" />
-          <span>Cabinet</span>
+          <span>{t('cabinet')}</span>
         </button>
       </nav>
 
       <Modal
         open={showAddMenu}
         onClose={closeAddMenu}
-        title="Add medicine"
+        title={t('addMedicine')}
         titleId="add-medicine-title"
         variant="sheet"
       >
@@ -160,8 +162,8 @@ export default function AppLayout({
               <ScanLine size={22} color="var(--accent-teal)" />
             </div>
             <div className="option-text">
-              <span className="option-title">Scan prescription</span>
-              <span className="option-desc">AI reads the label and fills the details for you</span>
+              <span className="option-title">{t('scanPrescription')}</span>
+              <span className="option-desc">{t('scanDesc')}</span>
             </div>
           </button>
 
@@ -182,14 +184,14 @@ export default function AppLayout({
               <Pencil size={22} color="var(--accent-cyan)" />
             </div>
             <div className="option-text">
-              <span className="option-title">Type manually</span>
-              <span className="option-desc">Enter names, schedules, and dosages yourself</span>
+              <span className="option-title">{t('typeManually')}</span>
+              <span className="option-desc">{t('manualDesc')}</span>
             </div>
           </button>
         </div>
 
         <button type="button" className="bottom-sheet-cancel" onClick={closeAddMenu}>
-          Cancel
+          {t('cancel')}
         </button>
       </Modal>
     </>

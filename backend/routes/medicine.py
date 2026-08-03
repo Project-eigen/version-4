@@ -220,13 +220,11 @@ def scan_medicine():
     scan_image_url = storage_urls[0] if storage_urls else ""
     last_error = None
 
-    # ── 1. Try OpenRouter Vision Pipeline (Qwen2.5-VL 72B / Claude 3.5 Sonnet) ────
+    # ── 1. Try OpenRouter Free Vision Model (Qwen2.5-VL 72B Instruct Free) ─────────
     openrouter_key = current_app.config.get("OPENROUTER_API_KEY")
     if openrouter_key:
         openrouter_models = [
             "qwen/qwen-2.5-vl-72b-instruct:free",
-            "qwen/qwen-2.5-vl-72b-instruct",
-            "anthropic/claude-3.5-sonnet",
         ]
         for model_name in openrouter_models:
             try:

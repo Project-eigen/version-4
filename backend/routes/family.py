@@ -347,14 +347,14 @@ def leave_family():
 
 @family_bp.route("/api/family/nudge", methods=["POST"])
 def nudge_family_member():
-    """Send a gentle dose reminder nudge to a family member."""
+    """Send a dose reminder nudge to a family member via both Web Push and Telegram."""
     user = get_current_user()
     if not user:
         return jsonify({"error": "Unauthorized"}), 401
 
     data = request.get_json(silent=True) or {}
     target_user_id = data.get("target_user_id")
-    medicine_name = data.get("medicine_name", "your medicine")
+    medicine_name = data.get("medicine_name", "medicine")
     time_slot = data.get("time_slot", "scheduled")
 
     if not target_user_id:
@@ -364,11 +364,41 @@ def nudge_family_member():
     if not target or target.family_id != user.family_id:
         return jsonify({"error": "Target user is not in your family group"}), 403
 
-    current_app.logger.info(f"Family nudge from {user.name} to {target.name} for {medicine_name}")
+    from models import PushSubscription
+    from notification_helpers import send_telegram_message, send_push_notification
+
+    is_hi = getattr(target, "language", "en") == "hi"
+    sent_telegram = False
+    sent_push = 0
+
+    # 1. Send Telegram Notification
+    if target.telegram_chat_id:
+        tg_text = (
+            f"🔔 <b>{user.name}</b> sent you a dose reminder:\n\n"
+            f"⏰ Please log your dose for <b>{medicine_name}</b> ({time_slot})."
+        ) if not is_hi else (
+            f"🔔 <b>{user.name}</b> ने आपको दवा का रिमाइंडर भेजा है:\n\n"
+            f"⏰ कृपया <b>{medicine_name}</b> ({time_slot}) की खुराक दर्ज करें।"
+        )
+        sent_telegram = send_telegram_message(target.telegram_chat_id, tg_text)
+
+    # 2. Send Phone Web Push Notification
+    push_subs = PushSubscription.query.filter_by(user_id=target.id).all()
+    if push_subs:
+        title = "DawaiSathi Family Reminder" if not is_hi else "दवासाथी फैमिली रिमाइंडर"
+        body = f"{user.name} reminded you to take {medicine_name} ({time_slot})" if not is_hi else f"{user.name} ने आपको {medicine_name} ({time_slot}) लेने की याद दिलाई है"
+        for sub in push_subs:
+            res = send_push_notification(sub.subscription_json, title=title, body=body, url="/cabinet")
+            if res is True:
+                sent_push += 1
+
+    current_app.logger.info(f"Family nudge from {user.name} to {target.name} (Telegram: {sent_telegram}, Push: {sent_push})")
 
     return jsonify({
         "message": f"Sent dose nudge to {target.name}!",
         "target_name": target.name,
+        "sent_telegram": sent_telegram,
+        "sent_push_count": sent_push,
     })
 
 

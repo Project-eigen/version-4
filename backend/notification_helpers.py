@@ -1,4 +1,5 @@
 import requests
+from backend.config import Config
 
 def send_telegram_message(chat_id: str, text: str) -> bool:
     token = Config.TELEGRAM_BOT_TOKEN

@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, ".env"))
 
-
 def _database_uri() -> str:
     """Normalize DATABASE_URL for SQLAlchemy / Supabase pooler / Render."""
     uri = os.environ.get("DATABASE_URL", "sqlite:///dawaisathi.db")
@@ -12,7 +11,6 @@ def _database_uri() -> str:
     if uri.startswith("postgres://"):
         uri = "postgresql://" + uri[len("postgres://") :]
     return uri
-
 
 def _engine_options(uri: str) -> dict:
     """Pool settings that work on Neon, Supabase direct, and Supabase PgBouncer."""
@@ -78,3 +76,6 @@ class Config:
     # ── Cron / Scheduler ────────────────────────────────────────────────────────
     # Secret token for external cron services to call trigger-check
     CRON_SECRET = os.environ.get("CRON_SECRET", "")
+
+    # ── WhatsApp Bot ────────────────────────────────────────────────────────────
+    WHATSAPP_BOT_TOKEN = os.environ.get("WHATSAPP_BOT_TOKEN", "")

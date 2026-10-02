@@ -22,9 +22,10 @@ GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
 
 
-def create_jwt(user_id: int, expires_in_hours: int = 720) -> str:
+def create_jwt(user_id: int, expires_in_hours: int = 720, is_superuser: bool = False) -> str:
     payload = {
         "user_id": user_id,
+        "is_superuser": bool(is_superuser),
         "exp": datetime.utcnow() + timedelta(hours=expires_in_hours),
         "iat": datetime.utcnow(),
     }
@@ -32,18 +33,50 @@ def create_jwt(user_id: int, expires_in_hours: int = 720) -> str:
 
 
 def get_current_user():
-    """Extract user from Authorization header JWT."""
+    """Extract user from Authorization header JWT or cookie."""
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
+    token = None
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ", 1)[1]
+    elif request.cookies.get("auth_callback_token"):
+        token = request.cookies.get("auth_callback_token")
+
+    if not token:
         return None
-    token = auth_header.split(" ", 1)[1]
     try:
         payload = jwt.decode(
             token, current_app.config["SECRET_KEY"], algorithms=["HS256"]
         )
-        return User.query.get(payload["user_id"])
+        user = User.query.get(payload["user_id"])
+        if user and not user.is_superuser:
+            admin_emails = current_app.config.get("ADMIN_EMAILS", [])
+            if user.email and user.email.lower() in admin_emails:
+                user.is_superuser = True
+                safe_commit()
+        return user
     except Exception:
         return None
+
+
+def superuser_required(fn):
+    """Decorator to protect admin routes requiring superuser status or master admin key."""
+    from functools import wraps
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        # 1. Master admin key header check
+        admin_key = request.headers.get("X-Admin-Key")
+        expected_key = current_app.config.get("ADMIN_SECRET_KEY")
+        if admin_key and expected_key and admin_key == expected_key:
+            return fn(*args, **kwargs)
+
+        # 2. Authenticated superuser JWT check
+        user = get_current_user()
+        if not user:
+            return jsonify({"error": "Authentication required", "code": "UNAUTHORIZED"}), 401
+        if not user.is_superuser:
+            return jsonify({"error": "Superuser privileges required", "code": "FORBIDDEN"}), 403
+        return fn(*args, **kwargs)
+    return wrapper
 
 
 @auth_bp.route("/api/auth/google")
@@ -133,9 +166,13 @@ def google_callback():
                 solo_family.name, solo_family.id, user.id,
             )
 
+        admin_emails = current_app.config.get("ADMIN_EMAILS", [])
+        if user.email and user.email.lower() in admin_emails:
+            user.is_superuser = True
+
         safe_commit()
 
-        token = create_jwt(user.id)
+        token = create_jwt(user.id, is_superuser=user.is_superuser)
 
         # On production (Render): pass the JWT directly in the redirect URL.
         secure_cookie = os.environ.get("RENDER") == "true" or current_app.config.get("ENV") == "production"

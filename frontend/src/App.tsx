@@ -19,6 +19,7 @@ const ScanApproval  = lazy(() => import('./pages/ScanApproval'))
 const Onboarding    = lazy(() => import('./pages/Onboarding'))
 const Report        = lazy(() => import('./pages/Report'))
 const History       = lazy(() => import('./pages/History'))
+const Admin         = lazy(() => import('./pages/Admin'))
 
 // Minimal full-screen spinner shown while a lazy chunk is being downloaded.
 // Matches the dark background so there's no flash of white (prevents CLS).
@@ -118,6 +119,7 @@ function AppRoutes() {
             <Route path="/scan/approve" element={<ProtectedRoute><PageTransition><ScanApproval /></PageTransition></ProtectedRoute>} />
             <Route path="/report"      element={<ProtectedRoute><PageTransition><Report /></PageTransition></ProtectedRoute>} />
             <Route path="/history"     element={<ProtectedRoute><PageTransition><History /></PageTransition></ProtectedRoute>} />
+            <Route path="/admin"       element={<PageTransition><Admin /></PageTransition>} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />

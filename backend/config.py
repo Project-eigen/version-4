@@ -5,7 +5,7 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 load_dotenv(os.path.join(basedir, ".env"))
 
 def _database_uri() -> str:
-    """Normalize DATABASE_URL for SQLAlchemy / Supabase pooler / Render."""
+    """Normalize DATABASE_URL for SQLAlchemy / local VPS / Supabase / SQLite."""
     uri = os.environ.get("DATABASE_URL", "sqlite:///dawaisathi.db")
     # Render/Heroku sometimes hand out postgres:// which SQLAlchemy rejects
     if uri.startswith("postgres://"):
@@ -13,29 +13,37 @@ def _database_uri() -> str:
     return uri
 
 def _engine_options(uri: str) -> dict:
-    """Pool settings that work on Neon, Supabase direct, and Supabase PgBouncer."""
+    """Pool settings optimized for local VPS PostgreSQL, Neon, and Supabase."""
+    if uri.startswith("sqlite"):
+        return {"pool_pre_ping": True}
+
     opts: dict = {
         "pool_pre_ping": True,
         "pool_recycle": 280,
-        "pool_size": 5,
-        "max_overflow": 5,
+        "pool_size": 10,
+        "max_overflow": 10,
     }
-    # Transaction-mode pooler (port 6543) does not support prepared statements
-    # or long-lived server-side sessions well; keep connections short-lived.
+
+    sslmode_env = os.environ.get("DB_SSLMODE")
+    is_local_host = any(h in uri for h in ("localhost", "127.0.0.1", "@db:", "@postgres:", "@db/", "@postgres/"))
+
     if ":6543" in uri or "pooler.supabase.com" in uri:
         opts["pool_size"] = 3
         opts["max_overflow"] = 2
         opts["connect_args"] = {
-            "sslmode": "require",
+            "sslmode": sslmode_env or "require",
             "connect_timeout": 15,
-            # Avoid channel_binding issues on some managed Postgres hosts
             "options": "-c statement_timeout=60000",
         }
     elif uri.startswith("postgresql"):
-        opts["connect_args"] = {
-            "sslmode": "require",
-            "connect_timeout": 15,
-        }
+        connect_args: dict = {"connect_timeout": 15}
+        if sslmode_env:
+            connect_args["sslmode"] = sslmode_env
+        elif not is_local_host:
+            connect_args["sslmode"] = "require"
+        # For local VPS PostgreSQL, no sslmode requirement so it connects immediately
+        opts["connect_args"] = connect_args
+
     return opts
 
 
@@ -44,6 +52,10 @@ class Config:
     SQLALCHEMY_DATABASE_URI = _database_uri()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = _engine_options(SQLALCHEMY_DATABASE_URI)
+
+    # ── Admin & Superuser ───────────────────────────────────────────────────────
+    ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY", "dawaisathi-super-admin-key-change-me")
+    ADMIN_EMAILS = [e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "admin@georbit.org").split(",") if e.strip()]
 
     GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
     GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")

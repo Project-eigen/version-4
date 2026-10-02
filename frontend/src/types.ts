@@ -4,6 +4,7 @@ export interface User {
   email: string
   avatar_url: string | null
   family_id: number | null
+  is_superuser?: boolean
 }
 
 export interface Family {

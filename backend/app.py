@@ -11,6 +11,7 @@ from routes.auth import auth_bp
 from routes.family import family_bp
 from routes.medicine import medicine_bp
 from routes.notifications import notifications_bp
+from routes.admin import admin_bp
 
 def create_app():
     app = Flask(__name__)
@@ -20,11 +21,22 @@ def create_app():
     db.init_app(app)
     limiter.init_app(app)
 
+    cors_origins = [
+        app.config.get("FRONTEND_URL", "http://localhost:5173"),
+        "https://dawaisathi.georbit.org",
+        "http://dawaisathi.georbit.org",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+    if os.environ.get("CORS_ORIGINS"):
+        cors_origins.extend([o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()])
+    cors_origins = list(set(filter(None, cors_origins)))
+
     CORS(
         app,
-        origins=[app.config["FRONTEND_URL"]],
+        origins=cors_origins,
         supports_credentials=True,
-        allow_headers=["Content-Type", "Authorization", "X-Cron-Secret"],
+        allow_headers=["Content-Type", "Authorization", "X-Cron-Secret", "X-Admin-Key"],
         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     )
 
@@ -33,6 +45,7 @@ def create_app():
     app.register_blueprint(family_bp)
     app.register_blueprint(medicine_bp)
     app.register_blueprint(notifications_bp)
+    app.register_blueprint(admin_bp)
 
     # Create DB tables & uploads folder.
     # Keep startup resilient: a transient DB blip must not kill every Gunicorn worker.
@@ -46,6 +59,14 @@ def create_app():
                 from sqlalchemy import inspect
                 inspector = inspect(db.engine)
                 user_cols = [col["name"] for col in inspector.get_columns("users")]
+                if "is_superuser" not in user_cols:
+                    db.session.execute(db.text("ALTER TABLE users ADD COLUMN is_superuser BOOLEAN DEFAULT FALSE;"))
+                    db.session.commit()
+                    app.logger.info("Successfully added missing is_superuser column to users table.")
+                if "password_hash" not in user_cols:
+                    db.session.execute(db.text("ALTER TABLE users ADD COLUMN password_hash VARCHAR(256);"))
+                    db.session.commit()
+                    app.logger.info("Successfully added missing password_hash column to users table.")
                 if "language" not in user_cols:
                     db.session.execute(db.text("ALTER TABLE users ADD COLUMN language VARCHAR(10) DEFAULT 'en';"))
                     db.session.commit()

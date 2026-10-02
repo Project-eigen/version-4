@@ -1,0 +1,108 @@
+services:
+  # ── 1. PostgreSQL Database (Hosted directly on VPS) ───────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: dawaisathi_db
+    restart: always
+    environment:
+      POSTGRES_DB: dawaisathi
+      POSTGRES_USER: ${POSTGRES_USER:-dawaisathi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dawaisathi_db_secure_pass_123}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dawaisathi} -d dawaisathi"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dawaisathi-network
+
+  # ── 2. Flask Backend API & Background Tasks ──────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: dawaisathi_backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-dawaisathi}:${POSTGRES_PASSWORD:-dawaisathi_db_secure_pass_123}@db:5432/dawaisathi
+      DB_SSLMODE: disable
+      SECRET_KEY: ${SECRET_KEY:-vps-secret-key-replace-with-random-entropy}
+      ADMIN_SECRET_KEY: ${ADMIN_SECRET_KEY:-dawaisathi-vps-super-admin-key}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-admin@georbit.org}
+      FRONTEND_URL: ${FRONTEND_URL:-https://dawaisathi.georbit.org}
+      CORS_ORIGINS: "https://dawaisathi.georbit.org,http://dawaisathi.georbit.org"
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-https://dawaisathi.georbit.org/api/auth/callback}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      CLOUDINARY_URL: ${CLOUDINARY_URL}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-https://dawaisathi.georbit.org}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+      VAPID_CLAIMS_EMAIL: ${VAPID_CLAIMS_EMAIL:-admin@dawaisathi.com}
+      CRON_SECRET: ${CRON_SECRET}
+    volumes:
+      - backend_uploads:/app/uploads
+    networks:
+      - dawaisathi-network
+
+  # ── 3. Frontend Web Application (React PWA) ───────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""
+    container_name: dawaisathi_frontend
+    restart: always
+    networks:
+      - dawaisathi-network
+
+  # ── 4. Nginx Reverse Proxy (SSL, Routing, Caching) ───────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: dawaisathi_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - dawaisathi-network
+
+  # ── 5. Certbot (Automatic Let's Encrypt SSL Renewal) ─────────────────────────
+  certbot:
+    image: certbot/certbot:latest
+    container_name: dawaisathi_certbot
+    restart: always
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    networks:
+      - dawaisathi-network
+
+volumes:
+  pgdata:
+    name: dawaisathi_postgres_data
+  backend_uploads:
+    name: dawaisathi_uploads_data
+
+networks:
+  dawaisathi-network:
+    name: dawaisathi_net
+    driver: bridge

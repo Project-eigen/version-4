@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Settings, FileText, Award, ShieldAlert } from 'lucide-react'
+import { Settings, FileText, Award, ShieldAlert, ShieldCheck } from 'lucide-react'
 import BrandLogo from './BrandLogo'
 import EmergencyCard from './EmergencyCard'
 import { useLanguage } from '../context/LanguageContext'
@@ -24,6 +24,19 @@ export default function Header() {
       </button>
 
       <div className="header-actions">
+        {user?.is_superuser && (
+          <button
+            type="button"
+            onClick={() => navigate('/admin')}
+            className="icon-btn"
+            aria-label="Superuser Admin Portal"
+            title="Superuser Admin Portal"
+            style={{ color: '#0d9488', backgroundColor: 'rgba(13, 148, 136, 0.15)', borderRadius: '8px' }}
+          >
+            <ShieldCheck size={20} aria-hidden="true" />
+          </button>
+        )}
+
         <button
           type="button"
           onClick={() => setShowEmergency(true)}

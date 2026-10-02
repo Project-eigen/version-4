@@ -1,5 +1,6 @@
 from datetime import datetime
 import json
+from werkzeug.security import generate_password_hash, check_password_hash
 from extensions import db
 
 
@@ -37,12 +38,15 @@ class User(db.Model):
     name = db.Column(db.String(128), nullable=False)
     email = db.Column(db.String(256), unique=True, nullable=False)
     avatar_url = db.Column(db.String(512))
+    password_hash = db.Column(db.String(256), nullable=True)
+    is_superuser = db.Column(db.Boolean, default=False)
     family_id = db.Column(db.Integer, db.ForeignKey("families.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     __table_args__ = (
         db.Index('idx_user_family_id', 'family_id'),
         db.Index('idx_user_telegram_chat_id', 'telegram_chat_id'),
+        db.Index('idx_user_is_superuser', 'is_superuser'),
     )
 
     # ── Notification fields ────────────────────────────────────────────────────
@@ -66,6 +70,14 @@ class User(db.Model):
     logs = db.relationship("MedicineLog", backref="user", lazy=True)
     push_subscriptions = db.relationship("PushSubscription", backref="user", lazy="dynamic")
 
+    def set_password(self, password: str):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password: str) -> bool:
+        if not self.password_hash:
+            return False
+        return check_password_hash(self.password_hash, password)
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -73,6 +85,7 @@ class User(db.Model):
             "email": self.email,
             "avatar_url": self.avatar_url,
             "family_id": self.family_id,
+            "is_superuser": bool(self.is_superuser),
             "telegram_linked": self.telegram_chat_id is not None,
             "push_enabled": self.push_subscription_json is not None,
             "timezone_name": self.timezone_name,

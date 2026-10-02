@@ -2,7 +2,7 @@
 # DawaiSathi — .gitignore
 # ========================
 
-# Environment / Secrets (NEVER commit these)
+# Environment / Secrets (NEVER commit real credentials)
 .env
 .env.*
 *.env
@@ -12,6 +12,9 @@ dawaisathi*.env*
 backend/.env
 frontend/.env
 frontend/.env.local
+!.env.example
+!.env.production.example
+!backend/.env.example
 
 # API keys & OAuth files (sensitive)
 gemini_api_key.md
@@ -71,3 +74,4 @@ Thumbs.db
 
 # Presentation PDFs (large files)
 *.pdf
+.aider*

@@ -39,7 +39,9 @@ class User(db.Model):
     email = db.Column(db.String(256), unique=True, nullable=False)
     avatar_url = db.Column(db.String(512))
     password_hash = db.Column(db.String(256), nullable=True)
+    username = db.Column(db.String(64), unique=True, nullable=True)
     is_superuser = db.Column(db.Boolean, default=False)
+    is_ultimate_admin = db.Column(db.Boolean, default=False)
     family_id = db.Column(db.Integer, db.ForeignKey("families.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -47,6 +49,7 @@ class User(db.Model):
         db.Index('idx_user_family_id', 'family_id'),
         db.Index('idx_user_telegram_chat_id', 'telegram_chat_id'),
         db.Index('idx_user_is_superuser', 'is_superuser'),
+        db.Index('idx_user_username', 'username'),
     )
 
     # ── Notification fields ────────────────────────────────────────────────────
@@ -82,10 +85,12 @@ class User(db.Model):
         return {
             "id": self.id,
             "name": self.name,
+            "username": self.username,
             "email": self.email,
             "avatar_url": self.avatar_url,
             "family_id": self.family_id,
             "is_superuser": bool(self.is_superuser),
+            "is_ultimate_admin": bool(self.is_ultimate_admin),
             "telegram_linked": self.telegram_chat_id is not None,
             "push_enabled": self.push_subscription_json is not None,
             "timezone_name": self.timezone_name,

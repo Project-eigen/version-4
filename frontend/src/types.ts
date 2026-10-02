@@ -1,10 +1,12 @@
 export interface User {
   id: number
   name: string
+  username?: string | null
   email: string
   avatar_url: string | null
   family_id: number | null
   is_superuser?: boolean
+  is_ultimate_admin?: boolean
 }
 
 export interface Family {

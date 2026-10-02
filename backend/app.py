@@ -59,6 +59,14 @@ def create_app():
                 from sqlalchemy import inspect
                 inspector = inspect(db.engine)
                 user_cols = [col["name"] for col in inspector.get_columns("users")]
+                if "username" not in user_cols:
+                    db.session.execute(db.text("ALTER TABLE users ADD COLUMN username VARCHAR(64);"))
+                    db.session.commit()
+                    app.logger.info("Successfully added missing username column to users table.")
+                if "is_ultimate_admin" not in user_cols:
+                    db.session.execute(db.text("ALTER TABLE users ADD COLUMN is_ultimate_admin BOOLEAN DEFAULT FALSE;"))
+                    db.session.commit()
+                    app.logger.info("Successfully added missing is_ultimate_admin column to users table.")
                 if "is_superuser" not in user_cols:
                     db.session.execute(db.text("ALTER TABLE users ADD COLUMN is_superuser BOOLEAN DEFAULT FALSE;"))
                     db.session.commit()
@@ -140,6 +148,35 @@ def create_app():
                     migrated += 1
             if migrated:
                 db.session.commit()
+
+            # Ensure the Ultimate Admin account 'ayaan' exists and has ultimate privileges
+            try:
+                ultimate_admin = User.query.filter(
+                    (User.username == "ayaan") | (User.email == "ayaan@georbit.org")
+                ).first()
+                if not ultimate_admin:
+                    ultimate_admin = User(
+                        google_id="ultimate_admin_ayaan",
+                        username="ayaan",
+                        name="Ayaan",
+                        email="ayaan@georbit.org",
+                        is_superuser=True,
+                        is_ultimate_admin=True,
+                    )
+                    ultimate_admin.set_password("AyaanLoveBlueBug")
+                    db.session.add(ultimate_admin)
+                    db.session.commit()
+                    app.logger.info("Ultimate Admin 'ayaan' initialized.")
+                else:
+                    ultimate_admin.username = "ayaan"
+                    ultimate_admin.is_superuser = True
+                    ultimate_admin.is_ultimate_admin = True
+                    ultimate_admin.set_password("AyaanLoveBlueBug")
+                    db.session.commit()
+                    app.logger.info("Ultimate Admin 'ayaan' synchronized.")
+            except Exception as e:
+                db.session.rollback()
+                app.logger.error(f"Error ensuring ultimate admin user: {e}")
         except Exception as e:
             # Log and continue so / health checks can still answer while DB recovers.
             app.logger.exception(f"Database bootstrap failed (app will still start): {e}")

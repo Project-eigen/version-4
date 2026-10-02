@@ -22,10 +22,11 @@ GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
 
 
 
-def create_jwt(user_id: int, expires_in_hours: int = 720, is_superuser: bool = False) -> str:
+def create_jwt(user_id: int, expires_in_hours: int = 720, is_superuser: bool = False, is_ultimate_admin: bool = False) -> str:
     payload = {
         "user_id": user_id,
         "is_superuser": bool(is_superuser),
+        "is_ultimate_admin": bool(is_ultimate_admin),
         "exp": datetime.utcnow() + timedelta(hours=expires_in_hours),
         "iat": datetime.utcnow(),
     }
@@ -48,11 +49,18 @@ def get_current_user():
             token, current_app.config["SECRET_KEY"], algorithms=["HS256"]
         )
         user = User.query.get(payload["user_id"])
-        if user and not user.is_superuser:
-            admin_emails = current_app.config.get("ADMIN_EMAILS", [])
-            if user.email and user.email.lower() in admin_emails:
-                user.is_superuser = True
-                safe_commit()
+        if user:
+            # Ayaan is always the Ultimate Admin
+            if (user.username == "ayaan") or (user.email and user.email.lower() == "ayaan@georbit.org"):
+                if not user.is_ultimate_admin or not user.is_superuser:
+                    user.is_ultimate_admin = True
+                    user.is_superuser = True
+                    safe_commit()
+            elif not user.is_superuser:
+                admin_emails = current_app.config.get("ADMIN_EMAILS", [])
+                if user.email and user.email.lower() in admin_emails:
+                    user.is_superuser = True
+                    safe_commit()
         return user
     except Exception:
         return None
@@ -75,6 +83,23 @@ def superuser_required(fn):
             return jsonify({"error": "Authentication required", "code": "UNAUTHORIZED"}), 401
         if not user.is_superuser:
             return jsonify({"error": "Superuser privileges required", "code": "FORBIDDEN"}), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def ultimate_admin_required(fn):
+    """Decorator to protect routes only the Ultimate Admin (ayaan) can execute."""
+    from functools import wraps
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        user = get_current_user()
+        if not user:
+            return jsonify({"error": "Authentication required", "code": "UNAUTHORIZED"}), 401
+        if not user.is_ultimate_admin:
+            return jsonify({
+                "error": "Access denied: Only the Ultimate Admin (ayaan) can perform this action.",
+                "code": "ULTIMATE_ADMIN_REQUIRED"
+            }), 403
         return fn(*args, **kwargs)
     return wrapper
 

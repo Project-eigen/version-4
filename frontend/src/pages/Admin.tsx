@@ -65,9 +65,9 @@ export default function Admin() {
 
   // Auth gate for non-superusers (can log in with Secret Key or Admin credentials)
   const [adminKey, setAdminKey] = useState('')
-  const [adminEmail, setAdminEmail] = useState('')
+  const [adminIdentifier, setAdminIdentifier] = useState('ayaan')
   const [adminPassword, setAdminPassword] = useState('')
-  const [loginMethod, setLoginMethod] = useState<'secret' | 'credentials'>('secret')
+  const [loginMethod, setLoginMethod] = useState<'credentials' | 'secret'>('credentials')
   const [authError, setAuthError] = useState('')
   const [authLoading, setAuthLoading] = useState(false)
 
@@ -96,7 +96,7 @@ export default function Admin() {
   const [confirmDeleteScan, setConfirmDeleteScan] = useState<any | null>(null)
 
   // SQL Console
-  const [sqlQuery, setSqlQuery] = useState('SELECT id, name, email, is_superuser, created_at FROM users LIMIT 10;')
+  const [sqlQuery, setSqlQuery] = useState('SELECT id, name, username, email, is_superuser, is_ultimate_admin, created_at FROM users LIMIT 10;')
   const [sqlResult, setSqlResult] = useState<any | null>(null)
   const [sqlRunning, setSqlRunning] = useState(false)
 
@@ -105,7 +105,7 @@ export default function Admin() {
   }
 
   // ── Authentication Check & Login ──────────────────────────────────────────
-  const isAuthorized = user?.is_superuser === true
+  const isAuthorized = user?.is_superuser === true || user?.is_ultimate_admin === true
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -114,13 +114,13 @@ export default function Admin() {
     try {
       const payload = loginMethod === 'secret'
         ? { secret_key: adminKey }
-        : { email: adminEmail, password: adminPassword }
+        : { username: adminIdentifier, password: adminPassword }
 
       const res = await api.post('/admin/login', payload)
       if (res.data?.token) {
         localStorage.setItem('token', res.data.token)
         await refreshUser()
-        showToast('Superuser session established!', 'success')
+        showToast(res.data.message || 'Superuser session established!', 'success')
       }
     } catch (err: any) {
       setAuthError(err.response?.data?.error || 'Authentication failed. Please check credentials.')
@@ -364,17 +364,17 @@ export default function Admin() {
           <div style={{ display: 'flex', background: '#1f2937', borderRadius: '8px', padding: '3px', marginBottom: '1.25rem' }}>
             <button
               type="button"
+              onClick={() => { setLoginMethod('credentials'); setAuthError('') }}
+              style={{ flex: 1, padding: '0.5rem', border: 'none', borderRadius: '6px', fontSize: '0.825rem', fontWeight: 600, cursor: 'pointer', background: loginMethod === 'credentials' ? '#0d9488' : 'transparent', color: loginMethod === 'credentials' ? '#fff' : '#9ca3af', transition: 'all 0.15s ease' }}
+            >
+              👑 Ayaan / Admin Login
+            </button>
+            <button
+              type="button"
               onClick={() => { setLoginMethod('secret'); setAuthError('') }}
               style={{ flex: 1, padding: '0.5rem', border: 'none', borderRadius: '6px', fontSize: '0.825rem', fontWeight: 600, cursor: 'pointer', background: loginMethod === 'secret' ? '#0d9488' : 'transparent', color: loginMethod === 'secret' ? '#fff' : '#9ca3af', transition: 'all 0.15s ease' }}
             >
               Master Secret Key
-            </button>
-            <button
-              type="button"
-              onClick={() => { setLoginMethod('credentials'); setAuthError('') }}
-              style={{ flex: 1, padding: '0.5rem', border: 'none', borderRadius: '6px', fontSize: '0.825rem', fontWeight: 600, cursor: 'pointer', background: loginMethod === 'credentials' ? '#0d9488' : 'transparent', color: loginMethod === 'credentials' ? '#fff' : '#9ca3af', transition: 'all 0.15s ease' }}
-            >
-              Email & Password
             </button>
           </div>
 
@@ -386,7 +386,39 @@ export default function Admin() {
           )}
 
           <form onSubmit={handleAdminLogin}>
-            {loginMethod === 'secret' ? (
+            {loginMethod === 'credentials' ? (
+              <>
+                <div style={{ marginBottom: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                    <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#d1d5db' }}>
+                      USERNAME OR EMAIL
+                    </label>
+                    <span style={{ fontSize: '0.7rem', color: '#f59e0b', fontWeight: 600 }}>👑 Ultimate Admin: ayaan</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={adminIdentifier}
+                    onChange={(e) => setAdminIdentifier(e.target.value)}
+                    placeholder="ayaan"
+                    required
+                    style={{ width: '100%', boxSizing: 'border-box', background: '#1e293b', border: '1px solid #374151', borderRadius: '8px', padding: '0.65rem 0.75rem', color: '#fff', fontSize: '0.9rem', outline: 'none' }}
+                  />
+                </div>
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#d1d5db', marginBottom: '0.4rem' }}>
+                    PASSWORD
+                  </label>
+                  <input
+                    type="password"
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    placeholder="Enter password..."
+                    required
+                    style={{ width: '100%', boxSizing: 'border-box', background: '#1e293b', border: '1px solid #374151', borderRadius: '8px', padding: '0.65rem 0.75rem', color: '#fff', fontSize: '0.9rem', outline: 'none' }}
+                  />
+                </div>
+              </>
+            ) : (
               <div style={{ marginBottom: '1.25rem' }}>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#d1d5db', marginBottom: '0.4rem' }}>
                   ADMIN SECRET KEY
@@ -405,35 +437,6 @@ export default function Admin() {
                   Defined in your VPS environment variables (<code style={{ color: '#38bdf8' }}>ADMIN_SECRET_KEY</code>).
                 </p>
               </div>
-            ) : (
-              <>
-                <div style={{ marginBottom: '1rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#d1d5db', marginBottom: '0.4rem' }}>
-                    ADMIN EMAIL
-                  </label>
-                  <input
-                    type="email"
-                    value={adminEmail}
-                    onChange={(e) => setAdminEmail(e.target.value)}
-                    placeholder="admin@georbit.org"
-                    required
-                    style={{ width: '100%', boxSizing: 'border-box', background: '#1e293b', border: '1px solid #374151', borderRadius: '8px', padding: '0.65rem 0.75rem', color: '#fff', fontSize: '0.9rem', outline: 'none' }}
-                  />
-                </div>
-                <div style={{ marginBottom: '1.25rem' }}>
-                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: '#d1d5db', marginBottom: '0.4rem' }}>
-                    PASSWORD
-                  </label>
-                  <input
-                    type="password"
-                    value={adminPassword}
-                    onChange={(e) => setAdminPassword(e.target.value)}
-                    placeholder="••••••••"
-                    required
-                    style={{ width: '100%', boxSizing: 'border-box', background: '#1e293b', border: '1px solid #374151', borderRadius: '8px', padding: '0.65rem 0.75rem', color: '#fff', fontSize: '0.9rem', outline: 'none' }}
-                  />
-                </div>
-              </>
             )}
 
             <button
@@ -477,7 +480,15 @@ export default function Admin() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
             <span style={{ fontWeight: 700, fontSize: '1.1rem', color: '#fff', letterSpacing: '-0.02em' }}>DawaiSathi Admin</span>
-            <span style={{ fontSize: '0.7rem', background: '#0d9488', color: '#fff', padding: '0.15rem 0.45rem', borderRadius: '4px', fontWeight: 600 }}>SUPERUSER</span>
+            {user.is_ultimate_admin || user.username === 'ayaan' ? (
+              <span style={{ fontSize: '0.7rem', background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#000', padding: '0.18rem 0.6rem', borderRadius: '4px', fontWeight: 800, letterSpacing: '0.04em' }}>
+                👑 ULTIMATE ADMIN
+              </span>
+            ) : (
+              <span style={{ fontSize: '0.7rem', background: '#0d9488', color: '#fff', padding: '0.15rem 0.45rem', borderRadius: '4px', fontWeight: 600 }}>
+                ADMINISTRATOR
+              </span>
+            )}
           </div>
         </div>
 
@@ -710,9 +721,13 @@ export default function Admin() {
                           <div style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{u.email}</div>
                         </td>
                         <td style={{ padding: '0.75rem 1rem' }}>
-                          {u.is_superuser ? (
+                          {u.is_ultimate_admin || u.username === 'ayaan' ? (
+                            <span style={{ background: 'linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.25))', color: '#fbbf24', border: '1px solid rgba(245, 158, 11, 0.5)', padding: '0.2rem 0.55rem', borderRadius: '4px', fontSize: '0.725rem', fontWeight: 800 }}>
+                              👑 ULTIMATE ADMIN
+                            </span>
+                          ) : u.is_superuser ? (
                             <span style={{ background: 'rgba(13, 148, 136, 0.2)', color: '#2dd4bf', border: '1px solid rgba(13, 148, 136, 0.4)', padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.725rem', fontWeight: 600 }}>
-                              SUPERUSER
+                              ADMIN
                             </span>
                           ) : u.is_guest ? (
                             <span style={{ background: 'rgba(107, 114, 128, 0.2)', color: '#9ca3af', padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.725rem' }}>
@@ -730,32 +745,40 @@ export default function Admin() {
                           {u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}
                         </td>
                         <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
-                          <div style={{ display: 'inline-flex', gap: '0.4rem' }}>
-                            <button
-                              type="button"
-                              onClick={() => handleToggleSuperuser(u)}
-                              title={u.is_superuser ? 'Revoke Superuser' : 'Promote to Superuser'}
-                              style={{ background: u.is_superuser ? 'rgba(239, 68, 68, 0.15)' : 'rgba(13, 148, 136, 0.15)', border: 'none', color: u.is_superuser ? '#f87171' : '#14b8a6', padding: '0.35rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
-                            >
-                              {u.is_superuser ? 'Demote' : 'Make Superuser'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => { setSelectedUser(u); setShowPasswordModal(true) }}
-                              title="Set Password"
-                              style={{ background: '#1e293b', border: '1px solid #374151', color: '#9ca3af', padding: '0.35rem', borderRadius: '6px', cursor: 'pointer' }}
-                            >
-                              <Key size={14} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeleteUser(u)}
-                              title="Delete User"
-                              style={{ background: 'rgba(239, 68, 68, 0.1)', border: 'none', color: '#ef4444', padding: '0.35rem', borderRadius: '6px', cursor: 'pointer' }}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </div>
+                          {u.is_ultimate_admin || u.username === 'ayaan' ? (
+                            <span style={{ color: '#f59e0b', fontSize: '0.75rem', fontWeight: 700, padding: '0.3rem 0.6rem', background: 'rgba(245, 158, 11, 0.1)', borderRadius: '6px' }}>
+                              👑 Main Owner
+                            </span>
+                          ) : (
+                            <div style={{ display: 'inline-flex', gap: '0.4rem' }}>
+                              {(user?.is_ultimate_admin || user?.username === 'ayaan') && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleSuperuser(u)}
+                                  title={u.is_superuser ? 'Revoke Admin Privileges' : 'Assign Admin Privileges'}
+                                  style={{ background: u.is_superuser ? 'rgba(239, 68, 68, 0.15)' : 'rgba(13, 148, 136, 0.15)', border: 'none', color: u.is_superuser ? '#f87171' : '#14b8a6', padding: '0.35rem 0.6rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
+                                >
+                                  {u.is_superuser ? 'Demote Admin' : 'Assign Admin'}
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => { setSelectedUser(u); setShowPasswordModal(true) }}
+                                title="Set Password"
+                                style={{ background: '#1e293b', border: '1px solid #374151', color: '#9ca3af', padding: '0.35rem', borderRadius: '6px', cursor: 'pointer' }}
+                              >
+                                <Key size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteUser(u)}
+                                title="Delete User"
+                                style={{ background: 'rgba(239, 68, 68, 0.1)', border: 'none', color: '#ef4444', padding: '0.35rem', borderRadius: '6px', cursor: 'pointer' }}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))

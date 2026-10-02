@@ -22,5 +22,5 @@ RUN mkdir -p /app/uploads
 
 EXPOSE 5000
 
-# Run with Gunicorn using WSGI app factory
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "3", "--threads", "2", "--timeout", "120", "app:create_app()"]
+# Run with Gunicorn using WSGI app factory with --preload so master initializes DB once
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--threads", "4", "--preload", "--timeout", "120", "app:create_app()"]

@@ -63,41 +63,41 @@ else
   echo "[*] Existing .env file detected, preserving current settings."
 fi
 
-# 6. Prepare Certbot & Nginx Directories
+# 6. Prepare Certbot & Nginx Directories with Self-Healing SSL Bootstrap
 echo "[5/7] Preparing SSL & Nginx challenge directories..."
-mkdir -p certbot/conf certbot/www
+mkdir -p "certbot/conf/live/${DOMAIN}" certbot/www
 mkdir -p nginx/conf.d
 
-# If no certificate exists yet, bootstrap with HTTP-only config first
-if [ ! -d "certbot/conf/live/${DOMAIN}" ]; then
-  echo "[*] Initializing HTTP bootstrap config for Let's Encrypt verification..."
-  cp nginx/conf.d/dawaisathi-init.conf nginx/conf.d/default.conf
+# Clean up any leftover duplicate config files
+rm -f nginx/conf.d/default.conf nginx/conf.d/dawaisathi-init.conf
 
-  echo "[*] Launching Nginx for HTTP ACME challenge..."
-  docker compose up -d nginx
-
-  echo "[6/7] Requesting Let's Encrypt SSL certificate for ${DOMAIN}..."
-  docker compose run --rm --entrypoint "\
-    certbot certonly --webroot -w /var/www/certbot \
-    --email ${EMAIL} \
-    -d ${DOMAIN} \
-    --rsa-key-size 4096 \
-    --agree-tos \
-    --force-renewal \
-    --non-interactive" certbot
-
-  echo "[+] SSL Certificate successfully issued!"
-  echo "[*] Switching to full HTTPS production configuration..."
-  cp nginx/conf.d/dawaisathi.conf nginx/conf.d/default.conf
-else
-  echo "[6/7] SSL certificate already exists for ${DOMAIN}."
-  cp nginx/conf.d/dawaisathi.conf nginx/conf.d/default.conf
+# If no certificate exists yet, generate temporary dummy certificate so Nginx boots cleanly
+if [ ! -f "certbot/conf/live/${DOMAIN}/fullchain.pem" ]; then
+  echo "[*] Creating temporary self-signed SSL certificate so Nginx boots safely..."
+  openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+    -keyout "certbot/conf/live/${DOMAIN}/privkey.pem" \
+    -out "certbot/conf/live/${DOMAIN}/fullchain.pem" \
+    -subj "/CN=${DOMAIN}" > /dev/null 2>&1
 fi
 
 # 7. Start Full Production Stack
-echo "[7/7] Launching all services (PostgreSQL, Backend API, Frontend, Nginx, Certbot)..."
+echo "[6/7] Launching all services (PostgreSQL, Backend API, Frontend, Nginx, Certbot)..."
 docker compose down || true
-docker compose up -d --build
+docker compose up -d
+
+# 8. Request / Upgrade to Official Let's Encrypt Certificate
+echo "[7/7] Requesting official Let's Encrypt SSL certificate for ${DOMAIN}..."
+docker compose run --rm --entrypoint "\
+  certbot certonly --webroot -w /var/www/certbot \
+  --email ${EMAIL} \
+  -d ${DOMAIN} \
+  --rsa-key-size 4096 \
+  --agree-tos \
+  --force-renewal \
+  --non-interactive" certbot || echo "[!] Notice: Let's Encrypt challenge had an issue, Nginx remains active."
+
+# Reload Nginx to apply fresh certificate
+docker compose exec -T nginx nginx -s reload 2>/dev/null || docker compose restart nginx
 
 # Wait 5 seconds for backend to start then ensure Ultimate Admin ayaan is synced
 sleep 5

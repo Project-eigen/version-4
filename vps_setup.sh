@@ -51,21 +51,14 @@ ufw --force enable || true
 # 5. Prepare Environment Configuration (.env)
 echo "[4/7] Setting up environment configuration..."
 if [ ! -f .env ]; then
-  echo "[*] Creating .env from .env.production.example..."
-  cp .env.production.example .env
-
-  # Auto-generate secure random keys
-  RANDOM_SECRET=$(openssl rand -hex 24)
-  RANDOM_DB_PASS=$(openssl rand -hex 16)
-  RANDOM_ADMIN_KEY="ds_admin_$(openssl rand -hex 12)"
-
-  sed -i "s/generate_a_random_32_byte_secret_key_here/${RANDOM_SECRET}/g" .env
-  sed -i "s/generate_a_secure_postgres_password_here/${RANDOM_DB_PASS}/g" .env
-  sed -i "s/dawaisathi-super-admin-vps-2026-secret/${RANDOM_ADMIN_KEY}/g" .env
-
-  echo "[+] Generated secure random SECRET_KEY, POSTGRES_PASSWORD, and ADMIN_SECRET_KEY."
-  echo "[!] IMPORTANT: Your Master Admin Secret Key is: ${RANDOM_ADMIN_KEY}"
-  echo "    Save this key to access the /admin database section!"
+  if [ -f .env.production ]; then
+    echo "[*] Using pre-configured .env.production..."
+    cp .env.production .env
+  elif [ -f .env.production.example ]; then
+    echo "[*] Creating .env from .env.production.example..."
+    cp .env.production.example .env
+  fi
+  echo "[+] Environment configuration loaded."
 else
   echo "[*] Existing .env file detected, preserving current settings."
 fi
@@ -106,16 +99,22 @@ echo "[7/7] Launching all services (PostgreSQL, Backend API, Frontend, Nginx, Ce
 docker compose down || true
 docker compose up -d --build
 
+# Wait 5 seconds for backend to start then ensure Ultimate Admin ayaan is synced
+sleep 5
+echo "[*] Initializing Ultimate Admin account 'ayaan'..."
+docker compose exec -T backend python manage_admin.py setup-ultimate --password "AyaanLoveBlueBug" || true
+
 echo "======================================================================"
 echo "[SUCCESS] DawaiSathi is live on your Google Cloud VPS!"
 echo "======================================================================"
 echo " Website URL:     https://${DOMAIN}"
 echo " Admin Portal:    https://${DOMAIN}/admin"
 echo ""
-echo " Database:        PostgreSQL 16 (Running locally on VPS)"
+echo " 👑 ULTIMATE ADMIN CREDENTIALS:"
+echo "   Username:      ayaan"
+echo "   Password:      AyaanLoveBlueBug"
 echo ""
-echo " To create your Superuser account right now, run:"
-echo "   docker compose exec backend python manage_admin.py createsuperuser --email admin@georbit.org --name \"Admin\" --password \"YourPassword123\""
+echo " Database:        PostgreSQL 16 (Running directly on VPS)"
 echo ""
 echo " To monitor logs in real time:"
 echo "   docker compose logs -f"

@@ -9,7 +9,9 @@ def _database_uri() -> str:
     uri = os.environ.get("DATABASE_URL", "sqlite:///dawaisathi.db")
     # Render/Heroku sometimes hand out postgres:// which SQLAlchemy rejects
     if uri.startswith("postgres://"):
-        uri = "postgresql://" + uri[len("postgres://") :]
+        uri = "postgresql+psycopg2://" + uri[len("postgres://") :]
+    elif uri.startswith("postgresql://"):
+        uri = "postgresql+psycopg2://" + uri[len("postgresql://") :]
     return uri
 
 def _engine_options(uri: str) -> dict:

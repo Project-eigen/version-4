@@ -22,5 +22,5 @@ RUN mkdir -p /app/uploads
 
 EXPOSE 5000
 
-# Run with Gunicorn using WSGI app with --preload
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--threads", "4", "--preload", "--timeout", "120", "app:app"]
+# Run with Gunicorn using WSGI app
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--threads", "2", "--timeout", "120", "app:app"]

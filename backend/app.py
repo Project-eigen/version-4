@@ -256,6 +256,8 @@ def create_app():
             import requests as _requests
 
             def _register_telegram_webhook():
+                import time
+                time.sleep(3)
                 webhook_url = f"{base_url}/api/telegram/webhook"
                 try:
                     resp = _requests.post(

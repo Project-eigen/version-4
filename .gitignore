@@ -19,6 +19,7 @@ frontend/.env.local
 # API keys & OAuth files (sensitive)
 gemini_api_key.md
 oauth_id.json
+client_secret*.json
 production_audit.md
 
 # Python
